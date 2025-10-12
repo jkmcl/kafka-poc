@@ -1,8 +1,11 @@
 package jkml;
 
 import java.time.Duration;
+import java.time.Instant;
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -26,9 +29,10 @@ public class MessageRetriever {
 	}
 
 	private List<TopicPartition> getPartitions(Consumer<String, String> consumer, String topic) {
-		var info = consumer.partitionsFor(topic, TIMEOUT);
-		var partitions = new ArrayList<TopicPartition>(info.size());
-		info.forEach(pi -> partitions.add(new TopicPartition(topic, pi.partition())));
+		var partitions = new ArrayList<TopicPartition>();
+		for (var info : consumer.partitionsFor(topic, TIMEOUT)) {
+			partitions.add(new TopicPartition(topic, info.partition()));
+		}
 		return partitions;
 	}
 
@@ -46,6 +50,35 @@ public class MessageRetriever {
 			var partitions = getPartitions(consumer, topic);
 			consumer.assign(partitions);
 			consumer.seekToBeginning(partitions);
+			return consumer.poll(TIMEOUT).records(topic);
+		}
+	}
+
+	private static Map<TopicPartition, Long> createTimestamps(List<TopicPartition> partitions, Instant timestamp) {
+		var map = new HashMap<TopicPartition, Long>();
+		var ms = Long.valueOf(timestamp.toEpochMilli());
+		partitions.forEach(p -> map.put(p, ms));
+		return map;
+	}
+
+	public Iterable<ConsumerRecord<String, String>> pollFromTimestamp(String topic, Instant timestamp) {
+		logger.info("Fetching messages from {} from topic: {}", timestamp, topic);
+		try (var consumer = consumerFactory.createConsumer()) {
+			var partitions = getPartitions(consumer, topic);
+			var partitionsWithMessage = new ArrayList<TopicPartition>();
+			var offsets = consumer.offsetsForTimes(createTimestamps(partitions, timestamp), TIMEOUT);
+			for (var entry : offsets.entrySet()) {
+				if (entry.getValue() != null) {
+					partitionsWithMessage.add(entry.getKey());
+				}
+			}
+			if (partitionsWithMessage.isEmpty()) {
+				return List.of();
+			}
+			consumer.assign(partitionsWithMessage);
+			for (var part : partitionsWithMessage) {
+				consumer.seek(part, offsets.get(part).offset());
+			}
 			return consumer.poll(TIMEOUT).records(topic);
 		}
 	}
