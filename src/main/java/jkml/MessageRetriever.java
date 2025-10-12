@@ -13,15 +13,15 @@ import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.stereotype.Component;
 
 @Component
-public class RecordRetriever {
+public class MessageRetriever {
 
 	private static final Duration TIMEOUT = Duration.ofSeconds(5);
 
-	private final Logger logger = LoggerFactory.getLogger(RecordRetriever.class);
+	private final Logger logger = LoggerFactory.getLogger(MessageRetriever.class);
 
 	private final ConsumerFactory<String, String> consumerFactory;
 
-	public RecordRetriever(ConsumerFactory<String, String> consumerFactory) {
+	public MessageRetriever(ConsumerFactory<String, String> consumerFactory) {
 		this.consumerFactory = consumerFactory;
 	}
 
@@ -36,8 +36,7 @@ public class RecordRetriever {
 		logger.info("Fetching messages from topic: {}", topic);
 		try (var consumer = consumerFactory.createConsumer()) {
 			consumer.assign(getPartitions(consumer, topic));
-			var consumerRecords = consumer.poll(Duration.ofSeconds(5));
-			return consumerRecords.records(topic);
+			return consumer.poll(TIMEOUT).records(topic);
 		}
 	}
 
@@ -47,8 +46,7 @@ public class RecordRetriever {
 			var partitions = getPartitions(consumer, topic);
 			consumer.assign(partitions);
 			consumer.seekToBeginning(partitions);
-			var consumerRecords = consumer.poll(Duration.ofSeconds(5));
-			return consumerRecords.records(topic);
+			return consumer.poll(TIMEOUT).records(topic);
 		}
 	}
 

@@ -21,12 +21,12 @@ import org.springframework.test.annotation.DirtiesContext;
 @SpringBootTest
 @EmbeddedKafka(kraft = true, brokerProperties = { "auto.create.topics.enable=true" })
 @DirtiesContext
-class RecordRetrieverTests {
+class MessageRetrieverTests {
 
-	private final Logger logger = LoggerFactory.getLogger(RecordRetrieverTests.class);
+	private final Logger logger = LoggerFactory.getLogger(MessageRetrieverTests.class);
 
 	@Autowired
-	private RecordRetriever retriever;
+	private MessageRetriever retriever;
 
 	@Autowired
 	private KafkaTemplate<String, String> kafkaTemplate;
@@ -59,7 +59,7 @@ class RecordRetrieverTests {
 		var value = "myValue";
 		send(topic, key, value);
 
-		retriever.poll(topic).iterator();
+		retriever.poll(topic).iterator(); // fetch once to move the offset
 
 		var iter = retriever.pollFromBeginning(topic).iterator();
 		var msg = iter.next();
