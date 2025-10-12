@@ -6,6 +6,7 @@ import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
+import java.util.Objects;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
@@ -28,12 +29,19 @@ public class MessageRetriever {
 		this.consumerFactory = consumerFactory;
 	}
 
-	private List<TopicPartition> getPartitions(Consumer<String, String> consumer, String topic) {
+	private static List<TopicPartition> getPartitions(Consumer<String, String> consumer, String topic) {
 		var partitions = new ArrayList<TopicPartition>();
 		for (var info : consumer.partitionsFor(topic, TIMEOUT)) {
 			partitions.add(new TopicPartition(topic, info.partition()));
 		}
 		return partitions;
+	}
+
+	private static Map<TopicPartition, Long> createTimestamps(List<TopicPartition> partitions, Instant timestamp) {
+		var timestamps = new HashMap<TopicPartition, Long>();
+		var ms = Long.valueOf(timestamp.toEpochMilli());
+		partitions.forEach(p -> timestamps.put(p, ms));
+		return timestamps;
 	}
 
 	public Iterable<ConsumerRecord<String, String>> poll(String topic) {
@@ -54,31 +62,17 @@ public class MessageRetriever {
 		}
 	}
 
-	private static Map<TopicPartition, Long> createTimestamps(List<TopicPartition> partitions, Instant timestamp) {
-		var map = new HashMap<TopicPartition, Long>();
-		var ms = Long.valueOf(timestamp.toEpochMilli());
-		partitions.forEach(p -> map.put(p, ms));
-		return map;
-	}
-
 	public Iterable<ConsumerRecord<String, String>> pollFromTimestamp(String topic, Instant timestamp) {
 		logger.info("Fetching messages from {} from topic: {}", timestamp, topic);
 		try (var consumer = consumerFactory.createConsumer()) {
 			var partitions = getPartitions(consumer, topic);
-			var partitionsWithMessage = new ArrayList<TopicPartition>();
 			var offsets = consumer.offsetsForTimes(createTimestamps(partitions, timestamp), TIMEOUT);
-			for (var entry : offsets.entrySet()) {
-				if (entry.getValue() != null) {
-					partitionsWithMessage.add(entry.getKey());
-				}
-			}
-			if (partitionsWithMessage.isEmpty()) {
+			offsets.values().removeIf(Objects::isNull);
+			if (offsets.isEmpty()) {
 				return List.of();
 			}
-			consumer.assign(partitionsWithMessage);
-			for (var part : partitionsWithMessage) {
-				consumer.seek(part, offsets.get(part).offset());
-			}
+			consumer.assign(offsets.keySet());
+			offsets.forEach((partition, offsetAndTime) -> consumer.seek(partition, offsetAndTime.offset()));
 			return consumer.poll(TIMEOUT).records(topic);
 		}
 	}
