@@ -8,11 +8,15 @@ import java.time.Instant;
 import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
+import org.apache.kafka.clients.consumer.Consumer;
+import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.TestInfo;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.boot.test.context.SpringBootTest;
+import org.springframework.kafka.core.ConsumerFactory;
 import org.springframework.kafka.core.KafkaTemplate;
 import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.annotation.DirtiesContext;
@@ -28,68 +32,92 @@ class MessageRetrieverTests {
 	private final Logger logger = LoggerFactory.getLogger(MessageRetrieverTests.class);
 
 	@Autowired
-	private MessageRetriever retriever;
+	private ConsumerFactory<String, String> factory;
 
 	@Autowired
 	private KafkaTemplate<String, String> kafkaTemplate;
+
+	private Consumer<String, String> createConsumer() {
+		return factory.createConsumer();
+	}
 
 	private void send(String topic, String key, String value) throws InterruptedException, ExecutionException {
 		logger.info("Sending message to topic: {}", topic);
 		kafkaTemplate.send(topic, key, value).get();
 	}
 
+	@BeforeEach
+	void beforeEach(TestInfo testInfo) {
+		logger.info("# Start of {}", testInfo.getDisplayName());
+	}
+
 	@Test
 	void testPoll() throws Exception {
-		var topic = "topic1";
+		var topic = UUID.randomUUID().toString();
 		var key = "myKey";
 		var value = UUID.randomUUID().toString();
 		send(topic, key, value);
 
-		var iter = retriever.poll(topic).iterator();
-		var msg = iter.next();
-		assertEquals(key, msg.key());
-		assertEquals(value, msg.value());
-		assertFalse(iter.hasNext());
-
-		logger.info("Timestamp: {}", Instant.ofEpochMilli(msg.timestamp()));
+		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
+			var iter = retriever.poll().iterator();
+			var msg = iter.next();
+			assertEquals(key, msg.key());
+			assertEquals(value, msg.value());
+			assertFalse(iter.hasNext());
+		}
 	}
 
 	@Test
-	void testPollFromBeginning() throws Exception {
-		var topic = "topic2";
+	void testSeekToBeginning() throws Exception {
+		var topic = UUID.randomUUID().toString();
 		var key = "myKey";
 		var value = UUID.randomUUID().toString();
 		send(topic, key, value);
 
-		retriever.poll(topic).iterator(); // fetch once to move the offset
-
-		var iter = retriever.pollFromBeginning(topic).iterator();
-		var msg = iter.next();
-		assertEquals(key, msg.key());
-		assertEquals(value, msg.value());
-		assertFalse(iter.hasNext());
+		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
+			retriever.poll(); // fetch once to move the offset
+			retriever.seekToBeginning();
+			assertFalse(retriever.poll().isEmpty());
+		}
 	}
 
 	@Test
-	void testPollFromTimestamp_found() throws Exception {
-		var topic = "topic3";
+	void testSeekToEnd() throws Exception {
+		var topic = UUID.randomUUID().toString();
 		var key = "myKey";
 		var value = UUID.randomUUID().toString();
 		send(topic, key, value);
 
-		var iter = retriever.pollFromTimestamp(topic, Instant.now().minusSeconds(10)).iterator();
-		assertTrue(iter.hasNext());
+		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
+			retriever.seekToEnd();
+			assertTrue(retriever.poll().isEmpty());
+		}
 	}
 
 	@Test
-	void testPollFromTimestamp_notFound() throws Exception {
-		var topic = "topic4";
+	void testSeekToTime_found() throws Exception {
+		var topic = UUID.randomUUID().toString();
 		var key = "myKey";
 		var value = UUID.randomUUID().toString();
 		send(topic, key, value);
 
-		var iter = retriever.pollFromTimestamp(topic, Instant.now().plusSeconds(10)).iterator();
-		assertFalse(iter.hasNext());
+		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
+			retriever.seekToTime(Instant.now().minusSeconds(10));
+			assertFalse(retriever.poll().isEmpty());
+		}
+	}
+
+	@Test
+	void testSeekToTime_notFound() throws Exception {
+		var topic = UUID.randomUUID().toString();
+		var key = "myKey";
+		var value = UUID.randomUUID().toString();
+		send(topic, key, value);
+
+		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
+			retriever.seekToTime(Instant.now().plusSeconds(10));
+			assertTrue(retriever.poll().isEmpty());
+		}
 	}
 
 }
