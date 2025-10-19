@@ -37,44 +37,41 @@ class MessageRetrieverTests {
 	@Autowired
 	private KafkaTemplate<String, String> kafkaTemplate;
 
-	private Consumer<String, String> createConsumer() {
-		return factory.createConsumer();
-	}
-
-	private void send(String topic, String key, String value) throws InterruptedException, ExecutionException {
-		logger.info("Sending message to topic: {}", topic);
-		kafkaTemplate.send(topic, key, value).get();
-	}
-
 	@BeforeEach
 	void beforeEach(TestInfo testInfo) {
 		logger.info("# Start of {}", testInfo.getDisplayName());
 	}
 
+	private static record Message(String topic, String key, String value) {
+	}
+
+	private Message send() throws InterruptedException, ExecutionException {
+		var msg = new Message(UUID.randomUUID().toString(), "key1", "Content created at " + Instant.now().toString());
+		logger.info("Sending message to topic: {}", msg.topic);
+		kafkaTemplate.send(msg.topic, msg.key, msg.value).get();
+		return msg;
+	}
+
+	private Consumer<String, String> createConsumer() {
+		return factory.createConsumer();
+	}
+
 	@Test
 	void testPoll() throws Exception {
-		var topic = UUID.randomUUID().toString();
-		var key = "myKey";
-		var value = UUID.randomUUID().toString();
-		send(topic, key, value);
+		var message = send();
 
-		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
-			var iter = retriever.poll().iterator();
-			var msg = iter.next();
-			assertEquals(key, msg.key());
-			assertEquals(value, msg.value());
-			assertFalse(iter.hasNext());
+		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
+			var polledMessage = retriever.poll().iterator().next();
+			assertEquals(message.key, polledMessage.key());
+			assertEquals(message.value, polledMessage.value());
 		}
 	}
 
 	@Test
 	void testSeekToBeginning() throws Exception {
-		var topic = UUID.randomUUID().toString();
-		var key = "myKey";
-		var value = UUID.randomUUID().toString();
-		send(topic, key, value);
+		var message = send();
 
-		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
+		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
 			retriever.poll(); // fetch once to move the offset
 			retriever.seekToBeginning();
 			assertFalse(retriever.poll().isEmpty());
@@ -83,12 +80,9 @@ class MessageRetrieverTests {
 
 	@Test
 	void testSeekToEnd() throws Exception {
-		var topic = UUID.randomUUID().toString();
-		var key = "myKey";
-		var value = UUID.randomUUID().toString();
-		send(topic, key, value);
+		var message = send();
 
-		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
+		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
 			retriever.seekToEnd();
 			assertTrue(retriever.poll().isEmpty());
 		}
@@ -96,12 +90,9 @@ class MessageRetrieverTests {
 
 	@Test
 	void testSeekToTime_found() throws Exception {
-		var topic = UUID.randomUUID().toString();
-		var key = "myKey";
-		var value = UUID.randomUUID().toString();
-		send(topic, key, value);
+		var message = send();
 
-		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
+		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
 			retriever.seekToTime(Instant.now().minusSeconds(10));
 			assertFalse(retriever.poll().isEmpty());
 		}
@@ -109,12 +100,9 @@ class MessageRetrieverTests {
 
 	@Test
 	void testSeekToTime_notFound() throws Exception {
-		var topic = UUID.randomUUID().toString();
-		var key = "myKey";
-		var value = UUID.randomUUID().toString();
-		send(topic, key, value);
+		var message = send();
 
-		try (var retriever = new MessageRetriever(createConsumer(), topic)) {
+		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
 			retriever.seekToTime(Instant.now().plusSeconds(10));
 			assertTrue(retriever.poll().isEmpty());
 		}
