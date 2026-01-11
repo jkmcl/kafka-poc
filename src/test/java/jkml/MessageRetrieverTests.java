@@ -60,7 +60,8 @@ class MessageRetrieverTests {
 	void testPoll() throws Exception {
 		var message = send();
 
-		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
+		try (var consumer = createConsumer()) {
+			var retriever = new MessageRetriever(consumer, message.topic);
 			var polledMessage = retriever.poll().iterator().next();
 			assertEquals(message.key, polledMessage.key());
 			assertEquals(message.value, polledMessage.value());
@@ -68,42 +69,23 @@ class MessageRetrieverTests {
 	}
 
 	@Test
-	void testSeekToBeginning() throws Exception {
+	void testCommitToTime_found() throws Exception {
 		var message = send();
 
-		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
-			retriever.poll(); // fetch once to move the offset
-			retriever.seekToBeginning();
+		try (var consumer = createConsumer()) {
+			var retriever = new MessageRetriever(consumer, message.topic);
+			retriever.commitToTime(Instant.now().minusSeconds(10));
 			assertFalse(retriever.poll().isEmpty());
 		}
 	}
 
 	@Test
-	void testSeekToEnd() throws Exception {
+	void testCommitToTime_notFound() throws Exception {
 		var message = send();
 
-		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
-			retriever.seekToEnd();
-			assertTrue(retriever.poll().isEmpty());
-		}
-	}
-
-	@Test
-	void testSeekToTime_found() throws Exception {
-		var message = send();
-
-		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
-			retriever.seekToTime(Instant.now().minusSeconds(10));
-			assertFalse(retriever.poll().isEmpty());
-		}
-	}
-
-	@Test
-	void testSeekToTime_notFound() throws Exception {
-		var message = send();
-
-		try (var retriever = new MessageRetriever(createConsumer(), message.topic)) {
-			retriever.seekToTime(Instant.now().plusSeconds(10));
+		try (var consumer = createConsumer()) {
+			var retriever = new MessageRetriever(consumer, message.topic);
+			retriever.commitToTime(Instant.now().plusSeconds(10));
 			assertTrue(retriever.poll().isEmpty());
 		}
 	}

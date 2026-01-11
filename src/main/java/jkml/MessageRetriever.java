@@ -1,13 +1,9 @@
 package jkml;
 
-import java.io.Closeable;
-import java.io.IOException;
 import java.time.Duration;
 import java.time.Instant;
-import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
@@ -15,7 +11,7 @@ import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class MessageRetriever implements Closeable {
+public class MessageRetriever {
 
 	private static final Duration POLL_TIMEOUT = Duration.ofSeconds(5);
 
@@ -32,69 +28,39 @@ public class MessageRetriever implements Closeable {
 		this.topic = topic;
 	}
 
-	@Override
-	public void close() throws IOException {
-		this.consumer.close();
-	}
-
-	private List<TopicPartition> getPartitions() {
-		var partitions = new ArrayList<TopicPartition>();
-		for (var info : consumer.partitionsFor(topic)) {
-			partitions.add(new TopicPartition(topic, info.partition()));
-		}
-		return partitions;
-	}
-
 	private void assign() {
 		if (assignedPartitions.isEmpty()) {
-			var partitions = getPartitions();
+			var partitions = TopicUtils.convertPartitions(consumer.partitionsFor(topic));
 			logger.info("Assigning all partitions under topic: {}", topic);
 			consumer.assign(partitions);
 			assignedPartitions = partitions;
 		}
 	}
 
-	private static Map<TopicPartition, Long> createTimestamps(List<TopicPartition> partitions, Instant timestamp) {
-		var timestamps = new HashMap<TopicPartition, Long>();
-		var ms = timestamp.toEpochMilli();
-		partitions.forEach(p -> timestamps.put(p, ms));
-		return timestamps;
-	}
-
-	public void seekToBeginning() {
+	public void commitToTime(Instant timestamp) {
 		assign();
 
-		logger.info("Seeking to the first offset for each partition under topic: {}", topic);
-		consumer.seekToBeginning(assignedPartitions);
-	}
-
-	public void seekToEnd() {
-		assign();
-
-		logger.info("Seeking to the last offset for each partition under topic: {}", topic);
-		consumer.seekToEnd(assignedPartitions);
-	}
-
-	public void seekToTime(Instant timestamp) {
-		assign();
-
-		logger.info("Seeking to the earliest offset created on or after {} for each partition under topic: {}", timestamp, topic);
-		var timeOffsets = consumer.offsetsForTimes(createTimestamps(assignedPartitions, timestamp));
-		var endOffsets = consumer.endOffsets(assignedPartitions);
-		var offsets = new HashMap<>(endOffsets);
-		for (var tos : timeOffsets.entrySet()) {
-			if (tos.getValue() != null) {
-				offsets.put(tos.getKey(), tos.getValue().offset());
+		logger.info("Committing fetch offsets to the earliest ones with timestamp >= {}", timestamp);
+		var offsets = new HashMap<>(consumer.endOffsets(assignedPartitions));
+		for (var offsetForTime : consumer.offsetsForTimes(TopicUtils.createTimestamps(assignedPartitions, timestamp))
+				.entrySet()) {
+			if (offsetForTime.getValue() != null) {
+				offsets.put(offsetForTime.getKey(), offsetForTime.getValue().offset());
 			}
 		}
-		offsets.forEach(consumer::seek);
+		consumer.commitSync(TopicUtils.convertOffsets(offsets));
+
+		// Re-assign to effect the change
+		consumer.unsubscribe();
+		consumer.assign(assignedPartitions);
 	}
 
 	public ConsumerRecords<String, String> poll() {
 		assign();
 
-		logger.info("Fetching messages from topic: {}", topic);
+		logger.info("Fetching messages");
 		var messages = consumer.poll(POLL_TIMEOUT);
+
 		logger.info("Fetched message count: {}", messages.count());
 		return messages;
 	}
