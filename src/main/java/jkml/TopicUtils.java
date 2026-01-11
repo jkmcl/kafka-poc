@@ -23,8 +23,8 @@ public class TopicUtils {
 
 	public static Map<TopicPartition, Long> createTimestamps(List<TopicPartition> partitions, Instant timestamp) {
 		var map = new HashMap<TopicPartition, Long>();
-		var ts = timestamp.toEpochMilli();
-		partitions.forEach(p -> map.put(p, ts));
+		var milli = timestamp.toEpochMilli();
+		partitions.forEach(p -> map.put(p, milli));
 		return map;
 	}
 

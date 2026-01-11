@@ -42,12 +42,11 @@ public class MessageRetriever {
 
 		logger.info("Committing fetch offsets to the earliest ones with timestamp >= {}", timestamp);
 		var offsets = new HashMap<>(consumer.endOffsets(assignedPartitions));
-		for (var offsetForTime : consumer.offsetsForTimes(TopicUtils.createTimestamps(assignedPartitions, timestamp))
-				.entrySet()) {
-			if (offsetForTime.getValue() != null) {
-				offsets.put(offsetForTime.getKey(), offsetForTime.getValue().offset());
+		consumer.offsetsForTimes(TopicUtils.createTimestamps(assignedPartitions, timestamp)).forEach((k, v) -> {
+			if (v != null) {
+				offsets.put(k, v.offset());
 			}
-		}
+		});
 		consumer.commitSync(TopicUtils.convertOffsets(offsets));
 
 		// Re-assign to effect the change
