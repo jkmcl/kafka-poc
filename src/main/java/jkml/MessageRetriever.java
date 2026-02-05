@@ -7,6 +7,7 @@ import java.util.List;
 
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
+import org.apache.kafka.clients.consumer.OffsetAndMetadata;
 import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -30,8 +31,8 @@ public class MessageRetriever {
 
 	private void assign() {
 		if (assignedPartitions.isEmpty()) {
-			var partitions = TopicUtils.convertPartitions(consumer.partitionsFor(topic));
-			logger.info("Assigning all partitions under topic: {}", topic);
+			var partitions = TopicUtils.toPartitions(consumer.partitionsFor(topic));
+			logger.info("Assigning all partitions in topic: {}", topic);
 			consumer.assign(partitions);
 			assignedPartitions = partitions;
 		}
@@ -41,13 +42,14 @@ public class MessageRetriever {
 		assign();
 
 		logger.info("Committing fetch offsets to the earliest ones with timestamp >= {}", timestamp);
-		var offsets = new HashMap<>(consumer.endOffsets(assignedPartitions));
-		consumer.offsetsForTimes(TopicUtils.createTimestamps(assignedPartitions, timestamp)).forEach((k, v) -> {
-			if (v != null) {
-				offsets.put(k, v.offset());
-			}
+		var endOffsets = consumer.endOffsets(assignedPartitions);
+		var timeOffsets = consumer.offsetsForTimes(TopicUtils.createTimestamps(assignedPartitions, timestamp));
+		var offsets = new HashMap<TopicPartition, OffsetAndMetadata>();
+		endOffsets.forEach((partition, endOffset) -> {
+			var timeOffset = timeOffsets.get(partition);
+			offsets.put(partition, new OffsetAndMetadata((timeOffset == null) ? endOffset : timeOffset.offset()));
 		});
-		consumer.commitSync(TopicUtils.convertOffsets(offsets));
+		consumer.commitSync(offsets);
 
 		// Re-assign to effect the change
 		consumer.unsubscribe();
