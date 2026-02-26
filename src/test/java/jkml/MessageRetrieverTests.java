@@ -25,7 +25,7 @@ import org.springframework.test.annotation.DirtiesContext;
  * See https://docs.spring.io/spring-kafka/reference/testing.html
  */
 @SpringBootTest
-@EmbeddedKafka(kraft = true, brokerProperties = { "auto.create.topics.enable=true" })
+@EmbeddedKafka(brokerProperties = { "auto.create.topics.enable=true" })
 @DirtiesContext
 class MessageRetrieverTests {
 

@@ -10,7 +10,7 @@ import org.springframework.kafka.test.context.EmbeddedKafka;
 import org.springframework.test.annotation.DirtiesContext;
 
 @SpringBootTest
-@EmbeddedKafka(kraft=true)
+@EmbeddedKafka
 @DirtiesContext
 class ApplicationTests {
 
