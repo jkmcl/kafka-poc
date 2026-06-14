@@ -23,11 +23,11 @@ import org.springframework.test.annotation.DirtiesContext;
  * See https://docs.spring.io/spring-kafka/reference/testing.html
  */
 @SpringBootTest
-@EmbeddedKafka(topics = { "topic1" }, partitions = 4)
+@EmbeddedKafka(topics = { "topic1" }, partitions = 2)
 @DirtiesContext
-class TopicConsumerTests {
+class TopicReaderTests {
 
-	private final Logger logger = LoggerFactory.getLogger(TopicConsumerTests.class);
+	private final Logger logger = LoggerFactory.getLogger(TopicReaderTests.class);
 
 	@Autowired
 	private ConsumerFactory<String, String> factory;
@@ -54,8 +54,8 @@ class TopicConsumerTests {
 	void testPoll() throws Exception {
 		var message = send();
 
-		var consumer = new TopicConsumer(message.topic, factory::createConsumer);
-		var polledMessage = consumer.poll().get(0);
+		var retriever = new TopicReader(message.topic, factory::createConsumer);
+		var polledMessage = retriever.poll().iterator().next();
 		assertEquals(message.key, polledMessage.key());
 		assertEquals(message.value, polledMessage.value());
 	}
@@ -64,18 +64,18 @@ class TopicConsumerTests {
 	void testCommitToTime_found() throws Exception {
 		var message = send();
 
-		var consumer = new TopicConsumer(message.topic, factory::createConsumer);
-		consumer.commitToTime(Instant.now().minusSeconds(10));
-		assertFalse(consumer.poll().isEmpty());
+		var retriever = new TopicReader(message.topic, factory::createConsumer);
+		retriever.commitToTime(Instant.now().minusSeconds(10));
+		assertFalse(retriever.poll().isEmpty());
 	}
 
 	@Test
 	void testCommitToTime_notFound() throws Exception {
 		var message = send();
 
-		var consumer = new TopicConsumer(message.topic, factory::createConsumer);
-		consumer.commitToTime(Instant.now().plusSeconds(10));
-		assertTrue(consumer.poll().isEmpty());
+		var retriever = new TopicReader(message.topic, factory::createConsumer);
+		retriever.commitToTime(Instant.now().plusSeconds(10));
+		assertTrue(retriever.poll().isEmpty());
 	}
 
 }

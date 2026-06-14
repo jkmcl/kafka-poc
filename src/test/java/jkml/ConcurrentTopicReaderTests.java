@@ -5,9 +5,9 @@ import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
+import java.util.UUID;
 import java.util.concurrent.ExecutionException;
 
-import org.apache.kafka.clients.consumer.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
@@ -24,11 +24,11 @@ import org.springframework.test.annotation.DirtiesContext;
  * See https://docs.spring.io/spring-kafka/reference/testing.html
  */
 @SpringBootTest
-@EmbeddedKafka(topics = { "topic1" }, partitions = 2)
+@EmbeddedKafka(topics = { "topic1" }, partitions = 4)
 @DirtiesContext
-class MessageRetrieverTests {
+class ConcurrentTopicReaderTests {
 
-	private final Logger logger = LoggerFactory.getLogger(MessageRetrieverTests.class);
+	private final Logger logger = LoggerFactory.getLogger(ConcurrentTopicReaderTests.class);
 
 	@Autowired
 	private ConsumerFactory<String, String> factory;
@@ -45,48 +45,53 @@ class MessageRetrieverTests {
 	}
 
 	private Message send() throws InterruptedException, ExecutionException {
-		var msg = new Message("topic1", "key1", "Content created at " + Instant.now().toString());
+		var str = UUID.randomUUID().toString();
+		var msg = new Message("topic1", str, "Content " + str);
 		logger.info("Sending message to topic: {}", msg.topic);
 		kafkaTemplate.send(msg.topic, msg.key, msg.value).get();
 		return msg;
-	}
-
-	private Consumer<String, String> createConsumer() {
-		return factory.createConsumer();
 	}
 
 	@Test
 	void testPoll() throws Exception {
 		var message = send();
 
-		try (var consumer = createConsumer()) {
-			var retriever = new MessageRetriever(consumer, message.topic);
-			var polledMessage = retriever.poll().iterator().next();
-			assertEquals(message.key, polledMessage.key());
-			assertEquals(message.value, polledMessage.value());
-		}
+		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
+		var polledMessage = reader.poll().get(0);
+		assertEquals(message.key, polledMessage.key());
+		assertEquals(message.value, polledMessage.value());
+	}
+
+	@Test
+	void testPollMany() throws Exception {
+		var message = send();
+		send();
+		send();
+		send();
+		send();
+		send();
+
+		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
+		var polledMessage = reader.poll();
+		assertEquals(6, polledMessage.size());
 	}
 
 	@Test
 	void testCommitToTime_found() throws Exception {
 		var message = send();
 
-		try (var consumer = createConsumer()) {
-			var retriever = new MessageRetriever(consumer, message.topic);
-			retriever.commitToTime(Instant.now().minusSeconds(10));
-			assertFalse(retriever.poll().isEmpty());
-		}
+		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
+		reader.commitToTime(Instant.now().minusSeconds(10));
+		assertFalse(reader.poll().isEmpty());
 	}
 
 	@Test
 	void testCommitToTime_notFound() throws Exception {
 		var message = send();
 
-		try (var consumer = createConsumer()) {
-			var retriever = new MessageRetriever(consumer, message.topic);
-			retriever.commitToTime(Instant.now().plusSeconds(10));
-			assertTrue(retriever.poll().isEmpty());
-		}
+		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
+		reader.commitToTime(Instant.now().plusSeconds(10));
+		assertTrue(reader.poll().isEmpty());
 	}
 
 }
