@@ -74,7 +74,7 @@ public class ConcurrentTopicReader {
 			subLists.add(new ArrayList<>());
 		}
 
-		for (var i = 0; i < originalList.size(); ++i) {
+		for (int i = 0, size = originalList.size(); i < size; ++i) {
 			subLists.get(i % subListCount).add(originalList.get(i));
 		}
 
@@ -116,7 +116,7 @@ public class ConcurrentTopicReader {
 		}
 	}
 
-	public List<ConsumerRecord<String, String>> poll() throws InterruptedException, PollException {
+	public List<ConsumerRecord<String, String>> poll() throws InterruptedException {
 		logger.info("Fetching messages from topic: {}", topic);
 
 		getPartitions();
@@ -178,25 +178,31 @@ public class ConcurrentTopicReader {
 		}
 
 		var total = 0;
+		var elapsedTimes = new ElapsedTimes();
+		var stopwatch = new Stopwatch();
 		while (true) {
-			var stopwatch = new Stopwatch().start();
+			// Fetch
+			stopwatch.start();
 			var records = consumer.poll(POLL_TIMEOUT);
-			var elapsed = stopwatch.elapsed();
+			var elapsed1 = stopwatch.elapsed();
 
 			var count = records.count();
-			logger.info("Consumer[{}] Fetched {} messages in {}", index, count, elapsed);
 			if (count == 0) {
 				break;
 			}
 			total += count;
 
+			// Process
 			stopwatch.start();
 			processor.accept(records);
-			elapsed = stopwatch.elapsed();
-			logger.info("Consumer[{}] Processed {} messages in {}", index, count, elapsed);
+			var elapsed2 = stopwatch.elapsed();
+
+			logger.info("Consumer[{}]: Read {} messages (fetched in {}, processed in {})", index, count, elapsed1,
+					elapsed2);
+			elapsedTimes.addFetch(elapsed1).addProcess(elapsed2);
 		}
 
-		logger.info("Consumer[{}] Total message count: {}", index, total);
+		logger.info("Consumer[{}]: Total message count: {} (fetched in {}, processed in {})", index, total, elapsedTimes.getFetch(), elapsedTimes.getProcess());
 	}
 
 }
