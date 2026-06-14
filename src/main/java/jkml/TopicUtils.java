@@ -2,6 +2,7 @@ package jkml;
 
 import java.time.Instant;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -14,17 +15,28 @@ public class TopicUtils {
 	private TopicUtils() {
 	}
 
-	public static List<TopicPartition> toPartitions(List<PartitionInfo> partitions) {
-		var list = new ArrayList<TopicPartition>(partitions.size());
+	public static List<TopicPartition> toPartitions(Iterable<PartitionInfo> partitions) {
+		var list = new ArrayList<TopicPartition>();
 		partitions.forEach(p -> list.add(new TopicPartition(p.topic(), p.partition())));
+		list.sort(Comparator.comparingInt(TopicPartition::partition));
 		return list;
 	}
 
-	public static Map<TopicPartition, Long> createTimestamps(List<TopicPartition> partitions, Instant timestamp) {
+	public static Map<TopicPartition, Long> createTimestamps(Iterable<TopicPartition> partitions, Instant timestamp) {
 		var map = new HashMap<TopicPartition, Long>();
 		var milli = timestamp.toEpochMilli();
 		partitions.forEach(p -> map.put(p, milli));
 		return map;
+	}
+
+	public static String join(CharSequence delimiter, Iterable<TopicPartition> partitions) {
+		var list = new ArrayList<TopicPartition>();
+		partitions.forEach(list::add);
+		list.sort(Comparator.comparingInt(TopicPartition::partition));
+
+		var strings = new ArrayList<String>(list.size());
+		list.forEach(p -> strings.add(p.toString()));
+		return String.join(delimiter, strings);
 	}
 
 }

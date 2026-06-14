@@ -7,7 +7,6 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import java.time.Instant;
 import java.util.concurrent.ExecutionException;
 
-import org.apache.kafka.clients.consumer.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
@@ -24,11 +23,11 @@ import org.springframework.test.annotation.DirtiesContext;
  * See https://docs.spring.io/spring-kafka/reference/testing.html
  */
 @SpringBootTest
-@EmbeddedKafka(topics = { "topic1" }, partitions = 2)
+@EmbeddedKafka(topics = { "topic1" }, partitions = 4)
 @DirtiesContext
-class MessageRetrieverTests {
+class TopicConsumerTests {
 
-	private final Logger logger = LoggerFactory.getLogger(MessageRetrieverTests.class);
+	private final Logger logger = LoggerFactory.getLogger(TopicConsumerTests.class);
 
 	@Autowired
 	private ConsumerFactory<String, String> factory;
@@ -51,42 +50,32 @@ class MessageRetrieverTests {
 		return msg;
 	}
 
-	private Consumer<String, String> createConsumer() {
-		return factory.createConsumer();
-	}
-
 	@Test
 	void testPoll() throws Exception {
 		var message = send();
 
-		try (var consumer = createConsumer()) {
-			var retriever = new MessageRetriever(consumer, message.topic);
-			var polledMessage = retriever.poll().iterator().next();
-			assertEquals(message.key, polledMessage.key());
-			assertEquals(message.value, polledMessage.value());
-		}
+		var consumer = new TopicConsumer(message.topic, factory::createConsumer);
+		var polledMessage = consumer.poll().get(0);
+		assertEquals(message.key, polledMessage.key());
+		assertEquals(message.value, polledMessage.value());
 	}
 
 	@Test
 	void testCommitToTime_found() throws Exception {
 		var message = send();
 
-		try (var consumer = createConsumer()) {
-			var retriever = new MessageRetriever(consumer, message.topic);
-			retriever.commitToTime(Instant.now().minusSeconds(10));
-			assertFalse(retriever.poll().isEmpty());
-		}
+		var consumer = new TopicConsumer(message.topic, factory::createConsumer);
+		consumer.commitToTime(Instant.now().minusSeconds(10));
+		assertFalse(consumer.poll().isEmpty());
 	}
 
 	@Test
 	void testCommitToTime_notFound() throws Exception {
 		var message = send();
 
-		try (var consumer = createConsumer()) {
-			var retriever = new MessageRetriever(consumer, message.topic);
-			retriever.commitToTime(Instant.now().plusSeconds(10));
-			assertTrue(retriever.poll().isEmpty());
-		}
+		var consumer = new TopicConsumer(message.topic, factory::createConsumer);
+		consumer.commitToTime(Instant.now().plusSeconds(10));
+		assertTrue(consumer.poll().isEmpty());
 	}
 
 }
