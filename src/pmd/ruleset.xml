@@ -11,6 +11,12 @@
 		<exclude name="SystemPrintln" />
 	</rule>
 
+	<rule ref="category/java/bestpractices.xml/ForLoopVariableCount">
+		<properties>
+			<property name="maximumVariables" value="2" />
+		</properties>
+	</rule>
+
 	<rule ref="category/java/bestpractices.xml/GuardLogStatement">
 		<properties>
 			<property name="logLevels" value="trace,debug,log,finest,finer,fine" />
@@ -23,8 +29,8 @@
 		<exclude name="CallSuperInConstructor" />
 		<exclude name="CommentDefaultAccessModifier" />
 		<exclude name="FieldNamingConventions" />
-		<exclude name="LinguisticNaming" />
 		<exclude name="LocalVariableCouldBeFinal" />
+		<exclude name="LocalVariableDeclarationShouldBeAtStartOfBlock" />
 		<exclude name="LongVariable" />
 		<exclude name="MethodArgumentCouldBeFinal" />
 		<exclude name="OnlyOneReturn" />
@@ -56,18 +62,17 @@
 	<rule ref="category/java/errorprone.xml/AssignmentInOperand">
 		<properties>
 			<property name="allowIf" value="true" />
+			<property name="allowIncrementDecrement" value="true" />
 		</properties>
 	</rule>
 
 	<rule ref="category/java/errorprone.xml/AvoidCatchingGenericException">
-		<!-- jkml.downloader.Downloader handles java.lang.Exception -->
 		<properties>
 			<property name="typesThatShouldNotBeCaught" value="java.lang.NullPointerException,java.lang.RuntimeException,java.lang.Throwable,java.lang.Error" />
 		</properties>
 	</rule>
 
 	<rule ref="category/java/multithreading.xml">
-		<!-- jkml.downloader.util.LangUtils.getUninterruptibly(Future<V>) handles possible InterruptedException -->
 		<exclude name="DoNotUseThreads" />
 	</rule>
 

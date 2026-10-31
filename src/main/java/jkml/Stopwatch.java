@@ -4,15 +4,15 @@ import java.time.Duration;
 
 public class Stopwatch {
 
-	private long start;
+	private long startTimeMillis;
 
 	public Stopwatch start() {
-		start = System.currentTimeMillis();
+		startTimeMillis = System.currentTimeMillis();
 		return this;
 	}
 
 	public Duration elapsed() {
-		return Duration.ofMillis(System.currentTimeMillis() - start);
+		return Duration.ofMillis(System.currentTimeMillis() - startTimeMillis);
 	}
 
 }

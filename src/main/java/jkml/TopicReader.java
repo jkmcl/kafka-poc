@@ -32,7 +32,7 @@ public class TopicReader {
 		this.consumerFactory = consumerFactory;
 	}
 
-	private void getPartitions() {
+	private void fetchPartitions() {
 		if (partitions.isEmpty()) {
 			try (var consumer = consumerFactory.get()) {
 				partitions.addAll(TopicUtils.toPartitions(consumer.partitionsFor(topic)));
@@ -43,7 +43,7 @@ public class TopicReader {
 	public void commitToTime(Instant timestamp) {
 		logger.info("Committing fetch offsets to the earliest ones with timestamp >= {} (topic: {})", timestamp, topic);
 
-		getPartitions();
+		fetchPartitions();
 
 		try (var consumer = consumerFactory.get()) {
 			consumer.assign(partitions);
@@ -62,7 +62,7 @@ public class TopicReader {
 	public List<ConsumerRecord<String, String>> poll() {
 		logger.info("Fetching messages from topic: {}", topic);
 
-		getPartitions();
+		fetchPartitions();
 
 		try (var consumer = consumerFactory.get()) {
 			consumer.assign(partitions);

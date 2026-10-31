@@ -37,7 +37,7 @@ public class ConcurrentTopicReader {
 		this.consumerFactory = consumerFactory;
 	}
 
-	private void getPartitions() {
+	private void fetchPartitions() {
 		if (partitions.isEmpty()) {
 			try (var consumer = consumerFactory.get()) {
 				partitions.addAll(TopicUtils.toPartitions(consumer.partitionsFor(topic)));
@@ -48,7 +48,7 @@ public class ConcurrentTopicReader {
 	public void commitToTime(Instant timestamp) {
 		logger.info("Committing fetch offsets to the earliest ones with timestamp >= {} (topic: {})", timestamp, topic);
 
-		getPartitions();
+		fetchPartitions();
 
 		try (var consumer = consumerFactory.get()) {
 			consumer.assign(partitions);
@@ -81,72 +81,53 @@ public class ConcurrentTopicReader {
 		return subLists;
 	}
 
-	private List<Consumer<String, String>> createConsumers() {
-		var procCount = Runtime.getRuntime().availableProcessors();
-		logger.debug("Processor count: {}", procCount);
-
-		var conCount = Math.min(procCount * 2, partitions.size());
-		logger.debug("Creating {} consumer(s)", conCount);
-		var consumers = new ArrayList<Consumer<String, String>>(conCount);
-		for (var i = 0; i < conCount; ++i) {
-			consumers.add(consumerFactory.get());
-		}
-
-		var partitionLists = splitList(partitions, conCount);
-		for (var i = 0; i < conCount; ++i) {
-			var list = partitionLists.get(i);
-			if (logger.isDebugEnabled()) {
-				logger.debug("Assigning partitions to consumer[{}]: {}", i, TopicUtils.join(", ", list));
-			}
-			consumers.get(i).assign(list);
-		}
-
-		return consumers;
-	}
-
-	private void destroyConsumers(List<Consumer<String, String>> consumers) {
-		var index = 0;
-		for (var consumer : consumers) {
-			try {
-				consumer.close();
-				++index;
-			} catch (Exception e) {
-				logger.warn("Failed to close consumer[{}]", index, e);
-			}
-		}
-	}
-
 	public List<ConsumerRecord<String, String>> poll() throws InterruptedException {
 		logger.info("Fetching messages from topic: {}", topic);
 
-		getPartitions();
+		fetchPartitions();
 
-		var consumers = createConsumers();
-		var collector = new MessageCollector();
+		var procCount = Runtime.getRuntime().availableProcessors();
+		logger.debug("Processor count: {}", procCount);
 
-		var tasks = new ArrayList<Callable<Void>>();
-		var index = 0;
-		for (var consumer : consumers) {
-			var idx = index++;
-			tasks.add(() -> {
-				poll(idx, consumer, collector::add);
-				return null;
-			});
-		}
+		var conCount = Math.min(procCount, partitions.size());
+		logger.debug("Creating {} consumer(s)", conCount);
 
-		var execSvc = Executors.newFixedThreadPool(consumers.size());
-		try {
-			if (validateDoneFutures(execSvc.invokeAll(tasks))) {
-				logger.info("Fetched message count: {} (topic: {})", collector.count(), topic);
-				var result = new ArrayList<ConsumerRecord<String, String>>(collector.count());
-				collector.export(result::add);
-				return result;
-			} else {
-				throw new PollException("One or more concurrent polling task was not completed");
+		try (var consumers = new ConsumerGroup(consumerFactory, conCount)) {
+			// Assign topics to consumers
+			var partitionLists = splitList(partitions, conCount);
+			for (var i = 0; i < conCount; ++i) {
+				var list = partitionLists.get(i);
+				if (logger.isDebugEnabled()) {
+					logger.debug("Assigning partitions to consumer[{}]: {}", i, TopicUtils.join(", ", list));
+				}
+				consumers.get(i).assign(list);
 			}
-		} finally {
-			execSvc.shutdownNow();
-			destroyConsumers(consumers);
+
+			// Prepare polling tasks
+			var collector = new MessageCollector();
+
+			var tasks = new ArrayList<Callable<Void>>();
+			for (var i = 0; i < conCount; ++i) {
+				var index = i;
+				tasks.add(() -> {
+					poll(index, consumers.get(index), collector::add);
+					return null;
+				});
+			}
+
+			// Execute polling tasks
+			var execSvc = Executors.newFixedThreadPool(conCount);
+			try {
+				if (validateDoneFutures(execSvc.invokeAll(tasks))) {
+					logger.info("Fetched message count: {} (topic: {})", collector.count(), topic);
+					var result = new ArrayList<ConsumerRecord<String, String>>(collector.count());
+					collector.export(result::add);
+					return result;
+				}
+				throw new PollException("One or more concurrent polling task was not completed");
+			} finally {
+				execSvc.shutdownNow();
+			}
 		}
 	}
 

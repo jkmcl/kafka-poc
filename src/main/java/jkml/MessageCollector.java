@@ -10,7 +10,7 @@ import org.apache.kafka.clients.consumer.ConsumerRecords;
 
 class MessageCollector {
 
-	private final ArrayList<ConsumerRecord<String, String>> messages = new ArrayList<>();
+	private final ArrayList<ConsumerRecord<String, String>> messages = new ArrayList<>(); // NOPMD: Need ArrayList.ensureCapacity for optimization
 
 	private final ReadWriteLock lock = new ReentrantReadWriteLock();
 
