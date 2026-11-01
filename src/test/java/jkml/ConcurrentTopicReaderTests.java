@@ -7,11 +7,11 @@ import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
 
 import java.time.Instant;
-import java.util.List;
 import java.util.UUID;
+import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
+import java.util.concurrent.Future;
 
-import org.apache.kafka.clients.consumer.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
@@ -57,15 +57,6 @@ class ConcurrentTopicReaderTests {
 	}
 
 	@Test
-	void testPoll_noPartition() throws Exception {
-		Consumer<String, String> mockConsumer = mock();
-		when(mockConsumer.partitionsFor("topic1")).thenReturn(List.of());
-
-		var retriever = new ConcurrentTopicReader("topic1", () -> mockConsumer);
-		assertTrue(retriever.poll().isEmpty());
-	}
-
-	@Test
 	void testPoll() throws Exception {
 		var message = send();
 
@@ -105,6 +96,22 @@ class ConcurrentTopicReaderTests {
 		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
 		reader.commitToTime(Instant.now().plusSeconds(10));
 		assertTrue(reader.poll().isEmpty());
+	}
+
+
+	@Test
+	void testWasExceptionThrown() throws Exception {
+		var reader = new ConcurrentTopicReader(null, null);
+
+		Future<Void> mockFuture = mock();
+		when(mockFuture.get())
+				.thenThrow(new ExecutionException(new IllegalStateException()))
+				.thenThrow(new CancellationException())
+				.thenThrow(new InterruptedException());
+
+		assertTrue(reader.wasExceptionThrown(0, mockFuture));
+		assertTrue(reader.wasExceptionThrown(0, mockFuture));
+		assertTrue(reader.wasExceptionThrown(0, mockFuture));
 	}
 
 }

@@ -11,4 +11,8 @@ public class PollException extends RuntimeException {
 		super(message);
 	}
 
+	public PollException(String message, Throwable cause) {
+		super(message, cause);
+	}
+
 }

@@ -79,114 +79,105 @@ public class ConcurrentTopicReader {
 		return subLists;
 	}
 
-	public List<ConsumerRecord<String, String>> poll() throws InterruptedException {
+	public List<ConsumerRecord<String, String>> poll() {
 		logger.info("Fetching messages from topic: {}", topic);
 
 		var messages = new ArrayList<ConsumerRecord<String, String>>();
 
 		fetchPartitions();
-		if (partitions.isEmpty()) {
-			return messages;
+
+		try (var consumerGroup = new ConsumerGroup<String, String>()) {
+			var consumerCount = Math.min(Runtime.getRuntime().availableProcessors(), partitions.size());
+			var partitionsLists = splitList(partitions, consumerCount);
+			for (var i = 0; i < consumerCount; ++i) {
+				var consumer = consumerGroup.add(consumerFactory); // NOPMD: consumers are managed by ConsumerGroup
+				consumer.assign(partitionsLists.get(i));
+			}
+
+			var lock = new ReentrantLock();
+			poll(consumerGroup, m -> {
+				lock.lock();
+				try {
+					messages.ensureCapacity(messages.size() + m.count());
+					m.forEach(messages::add);
+				} finally {
+					lock.unlock();
+				}
+			});
 		}
 
-		// Determine thread count
-		var threadCount = Math.min(Runtime.getRuntime().availableProcessors(), partitions.size());
-		try (var consumers = new ConsumerGroup<String, String>()) {
-			// Create consumers and assign partitions to them
-			var partitionLists = splitList(partitions, threadCount);
-			for (var i = 0; i < threadCount; ++i) {
-				var con = consumers.add(consumerFactory); // NOPMD: consumers are managed by ConsumerGroup
-				var list = partitionLists.get(i);
-				if (logger.isDebugEnabled()) {
-					logger.debug("Assigning partitions to consumer[{}]: {}", i, TopicUtils.join(", ", list));
-				}
-				con.assign(list);
-			}
+		logger.info("Fetched message count: {}", messages.size());
+		return messages;
+	}
 
-			// Prepare polling tasks
-			var lock = new ReentrantLock();
-			var tasks = new ArrayList<Callable<Void>>();
-			for (var i = 0; i < threadCount; ++i) {
-				var index = i;
-				tasks.add(() -> {
-					poll(index, consumers.get(index), m -> {
-						lock.lock();
-						try {
-							messages.ensureCapacity(messages.size() + m.count());
-							m.forEach(messages::add);
-						} finally {
-							lock.unlock();
-						}
-					});
-					return null;
-				});
-			}
+	void poll(ConsumerGroup<String, String> consumerGroup,
+			java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
+		// Prepare polling tasks
+		var tasks = new ArrayList<Callable<Void>>();
+		for (var i = 0; i < consumerGroup.size(); ++i) {
+			var index = i;
+			tasks.add(() -> {
+				poll(index, consumerGroup.get(index), processor);
+				return null;
+			});
+		}
 
-			// Execute polling tasks
-			var execSvc = Executors.newFixedThreadPool(threadCount);
-			try {
-				validateDoneFutures(execSvc.invokeAll(tasks));
-				logger.info("Fetched message count: {} (topic: {})", messages.size(), topic);
-				return messages;
-			} finally {
-				execSvc.shutdownNow();
+		// Execute polling tasks
+		var execSvc = Executors.newFixedThreadPool(consumerGroup.size());
+		try {
+			var futures = execSvc.invokeAll(tasks);
+			var hasException = false;
+			for (int i = 0, n = futures.size(); i < n; ++i) {
+				hasException |= wasExceptionThrown(i, futures.get(i));
 			}
+			if (hasException) {
+				throw new PollException("One or more concurrent polling tasks were completed abnormally");
+			}
+		} catch (InterruptedException e) {
+			Thread.currentThread().interrupt();
+			throw new PollException("The wait for concurrent polling tasks to complete was interrupted", e);
+		} finally {
+			execSvc.shutdownNow();
 		}
 	}
 
-	<T> void validateDoneFutures(List<Future<T>> futures) {
-		var hasException = false;
-		for (int i = 0, n = futures.size(); i < n; ++i) {
-			try {
-				futures.get(i).get();
-				continue;
-			} catch (InterruptedException e) {
-				logger.error("Consumer[{}]: Fetching result is unknown due to current thread being interrupted while waiting", i, e);
-				Thread.currentThread().interrupt();
-			} catch (ExecutionException e) {
-				logger.error("Consumer[{}]: Fetching was aborted due to an exception", i, e.getCause());
-			} catch (CancellationException e) {
-				logger.error("Consumer[{}]: Fetching was cancelled", i, e);
-			}
-			hasException = true;
+	boolean wasExceptionThrown(int index, Future<Void> future) {
+		try {
+			future.get();
+			return false;
+		} catch (InterruptedException e) {
+			logger.error("Consumer[{}]: The wait for the polling task to complete was interrupted", index, e);
+			Thread.currentThread().interrupt();
+		} catch (ExecutionException e) {
+			logger.error("Consumer[{}]: Fetching was aborted due to an exception", index, e);
+		} catch (CancellationException e) {
+			logger.error("Consumer[{}]: Fetching was cancelled", index, e);
 		}
-		if (hasException) {
-			throw new PollException("One or more concurrent polling task was not completed normally");
-		}
+		return true;
 	}
 
 	void poll(int index, Consumer<String, String> consumer,
 			java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
 		if (logger.isInfoEnabled()) {
-			logger.info("Consumer[{}]: Fetching messages from partitions: {}", index, TopicUtils.join(", ", consumer.assignment()));
+			logger.info("Consumer[{}]: Fetching messages from partition(s): {}", index,
+					TopicUtils.join(", ", consumer.assignment()));
 		}
 
-		var total = 0;
-		var elapsedTimes = new ElapsedTimes();
-		var stopwatch = new Stopwatch();
+		var batchCount = 0;
+		var messageCount = 0;
 		while (true) {
-			// Fetch
-			stopwatch.start();
-			var records = consumer.poll(POLL_TIMEOUT);
-			var elapsed1 = stopwatch.elapsed();
-
-			var count = records.count();
+			var messages = consumer.poll(POLL_TIMEOUT);
+			var count = messages.count();
+			logger.debug("Consumer[{}]: Fetched {} message(s)", index, count);
 			if (count == 0) {
 				break;
 			}
-			total += count;
-
-			// Process
-			stopwatch.start();
-			processor.accept(records);
-			var elapsed2 = stopwatch.elapsed();
-
-			logger.info("Consumer[{}]: Read {} messages (fetched in {}, processed in {})", index, count, elapsed1, elapsed2);
-			elapsedTimes.addFetch(elapsed1).addProcess(elapsed2);
+			batchCount++;
+			messageCount += count;
+			processor.accept(messages);
 		}
 
-		logger.info("Consumer[{}]: Total message count: {} (fetched in {}, processed in {})", index, total,
-				elapsedTimes.getFetch(), elapsedTimes.getProcess());
+		logger.debug("Consumer[{}]: Fetched {} message(s) in {} batch(es)", index, messageCount, batchCount);
 	}
 
 }

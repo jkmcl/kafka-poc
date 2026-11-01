@@ -25,6 +25,10 @@ public class ConsumerGroup<K, V> implements Closeable {
 		return consumers.get(index);
 	}
 
+	public int size() {
+		return consumers.size();
+	}
+
 	@Override
 	public void close() {
 		var index = 0;

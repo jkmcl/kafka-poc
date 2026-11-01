@@ -66,52 +66,41 @@ public class TopicReader {
 		var messages = new ArrayList<ConsumerRecord<String, String>>();
 
 		fetchPartitions();
-		if (partitions.isEmpty()) {
-			return messages;
-		}
 
 		try (var consumer = consumerFactory.get()) {
 			consumer.assign(partitions);
+
 			poll(consumer, m -> {
 				messages.ensureCapacity(messages.size() + m.count());
 				m.forEach(messages::add);
 			});
-			return messages;
 		}
+
+		logger.info("Fetched message count: {}", messages.size());
+		return messages;
 	}
 
 	void poll(Consumer<String, String> consumer,
 			java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
 		if (logger.isInfoEnabled()) {
-			logger.info("Fetching messages from partitions: {}", TopicUtils.join(", ", consumer.assignment()));
+			logger.info("Fetching messages from partition(s): {}", TopicUtils.join(", ", consumer.assignment()));
 		}
 
-		var total = 0;
-		var elapsedTimes = new ElapsedTimes();
-		var stopwatch = new Stopwatch();
+		var batchCount = 0;
+		var messageCount = 0;
 		while (true) {
-			// Fetch
-			stopwatch.start();
-			var records = consumer.poll(POLL_TIMEOUT);
-			var elapsed1 = stopwatch.elapsed();
-
-			var count = records.count();
+			var messages = consumer.poll(POLL_TIMEOUT);
+			var count = messages.count();
+			logger.debug("Fetched {} message(s)", count);
 			if (count == 0) {
 				break;
 			}
-			total += count;
-
-			// Process
-			stopwatch.start();
-			processor.accept(records);
-			var elapsed2 = stopwatch.elapsed();
-
-			logger.info("Read {} messages (fetched in {}, processed in {})", count, elapsed1, elapsed2);
-			elapsedTimes.addFetch(elapsed1).addProcess(elapsed2);
+			batchCount++;
+			messageCount += count;
+			processor.accept(messages);
 		}
 
-		logger.info("Total message count: {} (fetched in {}, processed in {})", total, elapsedTimes.getFetch(),
-				elapsedTimes.getProcess());
+		logger.debug("Fetched {} message(s) in {} batch(es)", messageCount, batchCount);
 	}
 
 }
