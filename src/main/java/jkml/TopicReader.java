@@ -33,6 +33,7 @@ public class TopicReader {
 	}
 
 	private void fetchPartitions() {
+		// Partition info is fetched only once by design
 		if (partitions.isEmpty()) {
 			try (var consumer = consumerFactory.get()) {
 				partitions.addAll(TopicUtils.toPartitions(consumer.partitionsFor(topic)));
@@ -71,40 +72,46 @@ public class TopicReader {
 
 		try (var consumer = consumerFactory.get()) {
 			consumer.assign(partitions);
-			var pollResult = poll(consumer);
-			messages.ensureCapacity(pollResult.count());
-			for (var recs : pollResult.recordsList()) {
-				for (var r : recs) {
-					messages.add(r);
-				}
-			}
+			poll(consumer, m -> {
+				messages.ensureCapacity(messages.size() + m.count());
+				m.forEach(messages::add);
+			});
 			return messages;
 		}
 	}
 
-	private record PollResult(List<ConsumerRecords<String, String>> recordsList, int count) {
-	}
-
-	PollResult poll(Consumer<String, String> consumer) {
+	void poll(Consumer<String, String> consumer,
+			java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
 		if (logger.isInfoEnabled()) {
 			logger.info("Fetching messages from partitions: {}", TopicUtils.join(", ", consumer.assignment()));
 		}
 
 		var total = 0;
-		var recordsList = new ArrayList<ConsumerRecords<String, String>>();
+		var elapsedTimes = new ElapsedTimes();
+		var stopwatch = new Stopwatch();
 		while (true) {
+			// Fetch
+			stopwatch.start();
 			var records = consumer.poll(POLL_TIMEOUT);
+			var elapsed1 = stopwatch.elapsed();
+
 			var count = records.count();
-			logger.info("Fetched message count: {}", count);
 			if (count == 0) {
 				break;
 			}
 			total += count;
-			recordsList.add(records);
+
+			// Process
+			stopwatch.start();
+			processor.accept(records);
+			var elapsed2 = stopwatch.elapsed();
+
+			logger.info("Read {} messages (fetched in {}, processed in {})", count, elapsed1, elapsed2);
+			elapsedTimes.addFetch(elapsed1).addProcess(elapsed2);
 		}
 
-		logger.info("Total fetched message count: {}", total);
-		return new PollResult(recordsList, total);
+		logger.info("Total message count: {} (fetched in {}, processed in {})", total, elapsedTimes.getFetch(),
+				elapsedTimes.getProcess());
 	}
 
 }

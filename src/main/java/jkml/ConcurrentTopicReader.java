@@ -10,6 +10,7 @@ import java.util.concurrent.CancellationException;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.Executors;
 import java.util.concurrent.Future;
+import java.util.concurrent.locks.ReentrantLock;
 import java.util.function.Supplier;
 
 import org.apache.kafka.clients.consumer.Consumer;
@@ -103,12 +104,20 @@ public class ConcurrentTopicReader {
 			}
 
 			// Prepare polling tasks
-			var messageCollector = new MessageCollector<>(messages);
+			var lock = new ReentrantLock();
 			var tasks = new ArrayList<Callable<Void>>();
 			for (var i = 0; i < threadCount; ++i) {
 				var index = i;
 				tasks.add(() -> {
-					poll(index, consumers.get(index), messageCollector);
+					poll(index, consumers.get(index), m -> {
+						lock.lock();
+						try {
+							messages.ensureCapacity(messages.size() + m.count());
+							m.forEach(messages::add);
+						} finally {
+							lock.unlock();
+						}
+					});
 					return null;
 				});
 			}
@@ -149,8 +158,7 @@ public class ConcurrentTopicReader {
 	void poll(int index, Consumer<String, String> consumer,
 			java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
 		if (logger.isInfoEnabled()) {
-			logger.info("Consumer[{}] Fetching messages from partitions: {}", index,
-					TopicUtils.join(", ", consumer.assignment()));
+			logger.info("Consumer[{}]: Fetching messages from partitions: {}", index, TopicUtils.join(", ", consumer.assignment()));
 		}
 
 		var total = 0;
@@ -173,12 +181,12 @@ public class ConcurrentTopicReader {
 			processor.accept(records);
 			var elapsed2 = stopwatch.elapsed();
 
-			logger.info("Consumer[{}]: Read {} messages (fetched in {}, processed in {})", index, count, elapsed1,
-					elapsed2);
+			logger.info("Consumer[{}]: Read {} messages (fetched in {}, processed in {})", index, count, elapsed1, elapsed2);
 			elapsedTimes.addFetch(elapsed1).addProcess(elapsed2);
 		}
 
-		logger.info("Consumer[{}]: Total message count: {} (fetched in {}, processed in {})", index, total, elapsedTimes.getFetch(), elapsedTimes.getProcess());
+		logger.info("Consumer[{}]: Total message count: {} (fetched in {}, processed in {})", index, total,
+				elapsedTimes.getFetch(), elapsedTimes.getProcess());
 	}
 
 }
