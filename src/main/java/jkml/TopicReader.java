@@ -95,7 +95,7 @@ public class TopicReader {
 			if (count == 0) {
 				break;
 			}
-			batchCount++;
+			++batchCount;
 			messageCount += count;
 			processor.accept(messages);
 		}

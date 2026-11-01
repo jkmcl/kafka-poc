@@ -15,10 +15,16 @@ public class ConsumerGroup<K, V> implements Closeable {
 
 	private final List<Consumer<K, V>> consumers = new ArrayList<>();
 
-	public Consumer<K, V> add(Supplier<Consumer<K, V>> consumerFactory) {
-		var consumer = consumerFactory.get();
+	private final Supplier<Consumer<K, V>> consumerFactory;
+
+	public ConsumerGroup(Supplier<Consumer<K, V>> consumerFactory) {
+		this.consumerFactory = consumerFactory;
+	}
+
+	public void create(java.util.function.Consumer<Consumer<K, V>> customizer) {
+		var consumer = consumerFactory.get(); // NOPMD: the consumer will be closed by close()
 		consumers.add(consumer);
-		return consumer;
+		customizer.accept(consumer);
 	}
 
 	public Consumer<K, V> get(int index) {
@@ -35,11 +41,12 @@ public class ConsumerGroup<K, V> implements Closeable {
 		for (var consumer : consumers) { // NOPMD: the consumer is closed in the loop explicitly
 			try {
 				consumer.close();
-				++index;
 			} catch (Exception e) {
 				logger.warn("Failed to close consumer[{}]", index, e);
 			}
+			++index;
 		}
+		consumers.clear();
 	}
 
 }

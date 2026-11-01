@@ -8,13 +8,6 @@
 	<description>Custom rules</description>
 
 	<rule ref="category/java/bestpractices.xml">
-		<exclude name="SystemPrintln" />
-	</rule>
-
-	<rule ref="category/java/bestpractices.xml/ForLoopVariableCount">
-		<properties>
-			<property name="maximumVariables" value="2" />
-		</properties>
 	</rule>
 
 	<rule ref="category/java/bestpractices.xml/GuardLogStatement">
@@ -36,18 +29,14 @@
 		<exclude name="OnlyOneReturn" />
 		<exclude name="ShortVariable" />
 		<exclude name="UseExplicitTypes" />
-		<exclude name="UseUnderscoresInNumericLiterals" />
 	</rule>
 
 	<rule ref="category/java/design.xml">
-		<exclude name="AvoidDeeplyNestedIfStmts" />
 		<exclude name="ClassWithOnlyPrivateConstructorsShouldBeFinal" />
 		<exclude name="CognitiveComplexity" />
 		<exclude name="CyclomaticComplexity" />
-		<exclude name="DataClass" />
 		<exclude name="LawOfDemeter" />
 		<exclude name="LoosePackageCoupling" />
-		<exclude name="TooManyMethods" />
 	</rule>
 
 	<rule ref="category/java/documentation.xml">

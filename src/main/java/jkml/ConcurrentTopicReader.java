@@ -66,14 +66,14 @@ public class ConcurrentTopicReader {
 		}
 	}
 
-	static <T> List<List<T>> splitList(List<T> list, int subListCount) {
-		List<List<T>> subLists = new ArrayList<>(subListCount);
-		for (var i = 0; i < subListCount; ++i) {
+	static <T> List<List<T>> subLists(List<T> list, int size) {
+		List<List<T>> subLists = new ArrayList<>(size);
+		for (var i = 0; i < size; ++i) {
 			subLists.add(new ArrayList<>());
 		}
 
-		for (int i = 0, n = list.size(); i < n; ++i) {
-			subLists.get(i % subListCount).add(list.get(i));
+		for (var i = 0; i < list.size(); ++i) {
+			subLists.get(i % size).add(list.get(i));
 		}
 
 		return subLists;
@@ -86,12 +86,12 @@ public class ConcurrentTopicReader {
 
 		fetchPartitions();
 
-		try (var consumerGroup = new ConsumerGroup<String, String>()) {
+		try (var consumerGroup = new ConsumerGroup<>(consumerFactory)) {
 			var consumerCount = Math.min(Runtime.getRuntime().availableProcessors(), partitions.size());
-			var partitionsLists = splitList(partitions, consumerCount);
+			var partitionsLists = subLists(partitions, consumerCount);
 			for (var i = 0; i < consumerCount; ++i) {
-				var consumer = consumerGroup.add(consumerFactory); // NOPMD: consumers are managed by ConsumerGroup
-				consumer.assign(partitionsLists.get(i));
+				var index = i;
+				consumerGroup.create(c -> c.assign(partitionsLists.get(index)));
 			}
 
 			var lock = new ReentrantLock();
@@ -127,11 +127,12 @@ public class ConcurrentTopicReader {
 		try {
 			var futures = execSvc.invokeAll(tasks);
 			var hasException = false;
-			for (int i = 0, n = futures.size(); i < n; ++i) {
-				hasException |= wasExceptionThrown(i, futures.get(i));
+			var index = 0;
+			for (var future : futures) {
+				hasException |= wasExceptionThrown(index++, future);
 			}
 			if (hasException) {
-				throw new PollException("One or more concurrent polling tasks were completed abnormally");
+				throw new PollException("One or more concurrent polling tasks were terminated abnormally");
 			}
 		} catch (InterruptedException e) {
 			Thread.currentThread().interrupt();
@@ -172,7 +173,7 @@ public class ConcurrentTopicReader {
 			if (count == 0) {
 				break;
 			}
-			batchCount++;
+			++batchCount;
 			messageCount += count;
 			processor.accept(messages);
 		}
