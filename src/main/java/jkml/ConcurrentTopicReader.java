@@ -38,6 +38,7 @@ public class ConcurrentTopicReader {
 	}
 
 	private void fetchPartitions() {
+		// Partition info is fetched only once by design
 		if (partitions.isEmpty()) {
 			try (var consumer = consumerFactory.get()) {
 				partitions.addAll(TopicUtils.toPartitions(consumer.partitionsFor(topic)));
@@ -64,18 +65,14 @@ public class ConcurrentTopicReader {
 		}
 	}
 
-	public static <T> List<List<T>> splitList(List<T> originalList, int subListCount) {
-		if (subListCount <= 0) {
-			throw new IllegalArgumentException("Number of sublists must be greater than 0");
-		}
-
+	static <T> List<List<T>> splitList(List<T> list, int subListCount) {
 		List<List<T>> subLists = new ArrayList<>(subListCount);
 		for (var i = 0; i < subListCount; ++i) {
 			subLists.add(new ArrayList<>());
 		}
 
-		for (int i = 0, size = originalList.size(); i < size; ++i) {
-			subLists.get(i % subListCount).add(originalList.get(i));
+		for (int i = 0, n = list.size(); i < n; ++i) {
+			subLists.get(i % subListCount).add(list.get(i));
 		}
 
 		return subLists;
@@ -84,59 +81,55 @@ public class ConcurrentTopicReader {
 	public List<ConsumerRecord<String, String>> poll() throws InterruptedException {
 		logger.info("Fetching messages from topic: {}", topic);
 
+		var messages = new ArrayList<ConsumerRecord<String, String>>();
+
 		fetchPartitions();
+		if (partitions.isEmpty()) {
+			return messages;
+		}
 
-		var procCount = Runtime.getRuntime().availableProcessors();
-		logger.debug("Processor count: {}", procCount);
-
-		var conCount = Math.min(procCount, partitions.size());
-		logger.debug("Creating {} consumer(s)", conCount);
-
-		try (var consumers = new ConsumerGroup(consumerFactory, conCount)) {
-			// Assign topics to consumers
-			var partitionLists = splitList(partitions, conCount);
-			for (var i = 0; i < conCount; ++i) {
+		// Determine thread count
+		var threadCount = Math.min(Runtime.getRuntime().availableProcessors(), partitions.size());
+		try (var consumers = new ConsumerGroup<String, String>()) {
+			// Create consumers and assign partitions to them
+			var partitionLists = splitList(partitions, threadCount);
+			for (var i = 0; i < threadCount; ++i) {
+				var con = consumers.add(consumerFactory); // NOPMD: consumers are managed by ConsumerGroup
 				var list = partitionLists.get(i);
 				if (logger.isDebugEnabled()) {
 					logger.debug("Assigning partitions to consumer[{}]: {}", i, TopicUtils.join(", ", list));
 				}
-				consumers.get(i).assign(list);
+				con.assign(list);
 			}
 
 			// Prepare polling tasks
-			var collector = new MessageCollector();
-
+			var messageCollector = new MessageCollector<>(messages);
 			var tasks = new ArrayList<Callable<Void>>();
-			for (var i = 0; i < conCount; ++i) {
+			for (var i = 0; i < threadCount; ++i) {
 				var index = i;
 				tasks.add(() -> {
-					poll(index, consumers.get(index), collector::add);
+					poll(index, consumers.get(index), messageCollector);
 					return null;
 				});
 			}
 
 			// Execute polling tasks
-			var execSvc = Executors.newFixedThreadPool(conCount);
+			var execSvc = Executors.newFixedThreadPool(threadCount);
 			try {
-				if (validateDoneFutures(execSvc.invokeAll(tasks))) {
-					logger.info("Fetched message count: {} (topic: {})", collector.count(), topic);
-					var result = new ArrayList<ConsumerRecord<String, String>>(collector.count());
-					collector.export(result::add);
-					return result;
-				}
-				throw new PollException("One or more concurrent polling task was not completed");
+				validateDoneFutures(execSvc.invokeAll(tasks));
+				logger.info("Fetched message count: {} (topic: {})", messages.size(), topic);
+				return messages;
 			} finally {
 				execSvc.shutdownNow();
 			}
 		}
 	}
 
-	<T> boolean validateDoneFutures(List<Future<T>> futures) {
-		var result = true;
-		for (int i = 0, size = futures.size(); i < size; i++) {
-			var f = futures.get(i);
+	<T> void validateDoneFutures(List<Future<T>> futures) {
+		var hasException = false;
+		for (int i = 0, n = futures.size(); i < n; ++i) {
 			try {
-				f.get();
+				futures.get(i).get();
 				continue;
 			} catch (InterruptedException e) {
 				logger.error("Consumer[{}]: Fetching result is unknown due to current thread being interrupted while waiting", i, e);
@@ -146,9 +139,11 @@ public class ConcurrentTopicReader {
 			} catch (CancellationException e) {
 				logger.error("Consumer[{}]: Fetching was cancelled", i, e);
 			}
-			result = false;
+			hasException = true;
 		}
-		return result;
+		if (hasException) {
+			throw new PollException("One or more concurrent polling task was not completed normally");
+		}
 	}
 
 	void poll(int index, Consumer<String, String> consumer,

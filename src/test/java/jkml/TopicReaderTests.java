@@ -3,10 +3,14 @@ package jkml;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
+import static org.mockito.Mockito.mock;
+import static org.mockito.Mockito.when;
 
 import java.time.Instant;
+import java.util.List;
 import java.util.concurrent.ExecutionException;
 
+import org.apache.kafka.clients.consumer.Consumer;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.junit.jupiter.api.TestInfo;
@@ -48,6 +52,15 @@ class TopicReaderTests {
 		logger.info("Sending message to topic: {}", msg.topic);
 		kafkaTemplate.send(msg.topic, msg.key, msg.value).get();
 		return msg;
+	}
+
+	@Test
+	void testPoll_noPartition() {
+		Consumer<String, String> mockConsumer = mock();
+		when(mockConsumer.partitionsFor("topic1")).thenReturn(List.of());
+
+		var retriever = new TopicReader("topic1", () -> mockConsumer);
+		assertTrue(retriever.poll().isEmpty());
 	}
 
 	@Test

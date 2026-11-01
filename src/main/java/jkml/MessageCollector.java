@@ -1,44 +1,32 @@
 package jkml;
 
 import java.util.ArrayList;
-import java.util.concurrent.locks.ReadWriteLock;
-import java.util.concurrent.locks.ReentrantReadWriteLock;
-import java.util.function.Consumer;
+import java.util.concurrent.locks.Lock;
+import java.util.concurrent.locks.ReentrantLock;
 
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
 
-class MessageCollector {
+class MessageCollector<K, V> implements java.util.function.Consumer<ConsumerRecords<K, V>> {
 
-	private final ArrayList<ConsumerRecord<String, String>> messages = new ArrayList<>(); // NOPMD: Need ArrayList.ensureCapacity for optimization
+	private final Lock instanceLock = new ReentrantLock();
 
-	private final ReadWriteLock lock = new ReentrantReadWriteLock();
+	private final ArrayList<ConsumerRecord<K, V>> messages; // NOPMD: Use ArrayList for optimization
 
-	int count() {
-		return messages.size();
+	MessageCollector(ArrayList<ConsumerRecord<K, V>> messages) { // NOPMD: Use ArrayList for optimization
+		this.messages = messages;
 	}
 
-	void add(ConsumerRecords<String, String> messages) {
-		lock.writeLock().lock();
+	@Override
+	public void accept(ConsumerRecords<K, V> messages) {
+		instanceLock.lock();
 		try {
 			this.messages.ensureCapacity(this.messages.size() + messages.count());
 			for (var m : messages) {
 				this.messages.add(m);
 			}
 		} finally {
-			lock.writeLock().unlock();
-		}
-
-	}
-
-	void export(Consumer<ConsumerRecord<String, String>> consumer) {
-		lock.readLock().lock();
-		try {
-			for (var m : messages) {
-				consumer.accept(m);
-			}
-		} finally {
-			lock.readLock().unlock();
+			instanceLock.unlock();
 		}
 	}
 

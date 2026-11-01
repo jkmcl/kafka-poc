@@ -62,12 +62,17 @@ public class TopicReader {
 	public List<ConsumerRecord<String, String>> poll() {
 		logger.info("Fetching messages from topic: {}", topic);
 
+		var messages = new ArrayList<ConsumerRecord<String, String>>();
+
 		fetchPartitions();
+		if (partitions.isEmpty()) {
+			return messages;
+		}
 
 		try (var consumer = consumerFactory.get()) {
 			consumer.assign(partitions);
 			var pollResult = poll(consumer);
-			var messages = new ArrayList<ConsumerRecord<String, String>>(pollResult.count());
+			messages.ensureCapacity(pollResult.count());
 			for (var recs : pollResult.recordsList()) {
 				for (var r : recs) {
 					messages.add(r);
