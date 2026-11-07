@@ -125,10 +125,9 @@ public class ConcurrentTopicReader {
 		// Execute polling tasks
 		var execSvc = Executors.newFixedThreadPool(consumerGroup.size());
 		try {
-			var futures = execSvc.invokeAll(tasks);
-			var hasException = false;
 			var index = 0;
-			for (var future : futures) {
+			var hasException = false;
+			for (var future : execSvc.invokeAll(tasks)) {
 				hasException |= wasExceptionThrown(index++, future);
 			}
 			if (hasException) {

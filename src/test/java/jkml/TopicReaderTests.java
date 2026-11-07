@@ -1,7 +1,6 @@
 package jkml;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
@@ -52,30 +51,22 @@ class TopicReaderTests {
 
 	@Test
 	void testPoll() throws Exception {
+		var minTimestamp = Instant.now();
 		var message = send();
 
 		var retriever = new TopicReader(message.topic, factory::createConsumer);
-		var polledMessage = retriever.poll().iterator().next();
+		var polledMessage = retriever.poll(minTimestamp).iterator().next();
 		assertEquals(message.key, polledMessage.key());
 		assertEquals(message.value, polledMessage.value());
 	}
 
 	@Test
-	void testCommitToTime_found() throws Exception {
+	void testPoll_notFound() throws Exception {
+		var minTimestamp = Instant.now();
 		var message = send();
 
 		var retriever = new TopicReader(message.topic, factory::createConsumer);
-		retriever.commitToTime(Instant.now().minusSeconds(10));
-		assertFalse(retriever.poll().isEmpty());
-	}
-
-	@Test
-	void testCommitToTime_notFound() throws Exception {
-		var message = send();
-
-		var retriever = new TopicReader(message.topic, factory::createConsumer);
-		retriever.commitToTime(Instant.now().plusSeconds(10));
-		assertTrue(retriever.poll().isEmpty());
+		assertTrue(retriever.poll(minTimestamp.plusSeconds(10)).isEmpty());
 	}
 
 }
