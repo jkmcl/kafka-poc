@@ -47,7 +47,7 @@ public class ConcurrentTopicReader {
 		}
 	}
 
-	public void commitToTime(Instant timestamp) {
+	void commitToTime(Instant timestamp) {
 		logger.info("Committing fetch offsets to the earliest ones with timestamp >= {} (topic: {})", timestamp, topic);
 
 		fetchPartitions();
@@ -79,51 +79,46 @@ public class ConcurrentTopicReader {
 		return subLists;
 	}
 
-	public List<ConsumerRecord<String, String>> poll() {
+	public List<ConsumerRecord<String, String>> poll(Instant minTimestamp) {
 		logger.info("Fetching messages from topic: {}", topic);
 
 		var messages = new ArrayList<ConsumerRecord<String, String>>();
 
-		fetchPartitions();
+		commitToTime(minTimestamp);
 
-		try (var consumerGroup = new ConsumerGroup<>(consumerFactory)) {
-			var consumerCount = Math.min(Runtime.getRuntime().availableProcessors(), partitions.size());
-			var partitionsLists = subLists(partitions, consumerCount);
-			for (var i = 0; i < consumerCount; ++i) {
-				var index = i;
-				consumerGroup.create(c -> c.assign(partitionsLists.get(index)));
+		var lock = new ReentrantLock();
+		poll(m -> {
+			lock.lock();
+			try {
+				messages.ensureCapacity(messages.size() + m.count());
+				m.forEach(messages::add);
+			} finally {
+				lock.unlock();
 			}
-
-			var lock = new ReentrantLock();
-			poll(consumerGroup, m -> {
-				lock.lock();
-				try {
-					messages.ensureCapacity(messages.size() + m.count());
-					m.forEach(messages::add);
-				} finally {
-					lock.unlock();
-				}
-			});
-		}
+		});
 
 		logger.info("Fetched message count: {}", messages.size());
 		return messages;
 	}
 
-	void poll(ConsumerGroup<String, String> consumerGroup,
-			java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
+	void poll(java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
 		// Prepare polling tasks
-		var tasks = new ArrayList<Callable<Void>>();
-		for (var i = 0; i < consumerGroup.size(); ++i) {
+		var threadCount = Math.min(Runtime.getRuntime().availableProcessors(), partitions.size());
+		var tasks = new ArrayList<Callable<Void>>(threadCount);
+		var partitionsLists = subLists(partitions, threadCount);
+		for (var i = 0; i < threadCount; ++i) {
 			var index = i;
 			tasks.add(() -> {
-				poll(index, consumerGroup.get(index), processor);
+				try (var consumer = consumerFactory.get()) {
+					consumer.assign(partitionsLists.get(index));
+					poll(index, consumer, processor);
+				}
 				return null;
 			});
 		}
 
 		// Execute polling tasks
-		var execSvc = Executors.newFixedThreadPool(consumerGroup.size());
+		var execSvc = Executors.newFixedThreadPool(threadCount);
 		try {
 			var index = 0;
 			var hasException = false;
@@ -158,24 +153,21 @@ public class ConcurrentTopicReader {
 
 	void poll(int index, Consumer<String, String> consumer,
 			java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
-		if (logger.isInfoEnabled()) {
-			logger.info("Consumer[{}]: Fetching messages from partition(s): {}", index,
+		if (logger.isDebugEnabled()) {
+			logger.debug("Consumer[{}]: Fetching messages from partition(s): {}", index,
 					TopicUtils.join(", ", consumer.assignment()));
 		}
 
 		var batchCount = 0;
 		var messageCount = 0;
-		while (true) {
+		do {
 			var messages = consumer.poll(POLL_TIMEOUT);
+			++batchCount;
 			var count = messages.count();
 			logger.debug("Consumer[{}]: Fetched {} message(s)", index, count);
-			if (count == 0) {
-				break;
-			}
-			++batchCount;
 			messageCount += count;
 			processor.accept(messages);
-		}
+		} while (ConsumerUtils.hasLag(consumer));
 
 		logger.debug("Consumer[{}]: Fetched {} message(s) in {} batch(es)", index, messageCount, batchCount);
 	}

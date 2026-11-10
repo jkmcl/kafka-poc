@@ -5,7 +5,6 @@ import java.time.Instant;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.List;
-import java.util.Map;
 import java.util.function.Supplier;
 
 import org.apache.kafka.clients.consumer.Consumer;
@@ -42,7 +41,7 @@ public class TopicReader {
 		}
 	}
 
-	Map<TopicPartition, Long> commitToTime(Instant timestamp) {
+	void commitToTime(Instant timestamp) {
 		logger.info("Committing fetch offsets to the earliest ones with timestamp >= {} (topic: {})", timestamp, topic);
 
 		fetchPartitions();
@@ -51,15 +50,13 @@ public class TopicReader {
 			consumer.assign(partitions);
 			var endOffsets = consumer.endOffsets(partitions);
 			var timeOffsets = consumer.offsetsForTimes(TopicUtils.createTimestamps(partitions, timestamp));
-			var startOffsets = new HashMap<TopicPartition, OffsetAndMetadata>();
+			var offsets = new HashMap<TopicPartition, OffsetAndMetadata>();
 			endOffsets.forEach((partition, endOffset) -> {
 				var timeOffset = timeOffsets.get(partition);
-				startOffsets.put(partition, new OffsetAndMetadata((timeOffset == null) ? endOffset : timeOffset.offset()));
+				offsets.put(partition, new OffsetAndMetadata((timeOffset == null) ? endOffset : timeOffset.offset()));
 			});
-			consumer.commitSync(startOffsets);
+			consumer.commitSync(offsets);
 			consumer.unsubscribe();
-
-			return endOffsets;
 		}
 	}
 
@@ -68,25 +65,28 @@ public class TopicReader {
 
 		var messages = new ArrayList<ConsumerRecord<String, String>>();
 
-		var endOffsets = commitToTime(minTimestamp);
+		commitToTime(minTimestamp);
 
-		try (var consumer = consumerFactory.get()) {
-			consumer.assign(partitions);
-
-			poll(consumer, endOffsets, m -> {
-				messages.ensureCapacity(messages.size() + m.count());
-				m.forEach(messages::add);
-			});
-		}
+		poll(m -> {
+			messages.ensureCapacity(messages.size() + m.count());
+			m.forEach(messages::add);
+		});
 
 		logger.info("Fetched message count: {}", messages.size());
 		return messages;
 	}
 
-	void poll(Consumer<String, String> consumer, Map<TopicPartition, Long> endOffsets,
+	void poll(java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
+		try (var consumer = consumerFactory.get()) {
+			consumer.assign(partitions);
+			poll(consumer, processor);
+		}
+	}
+
+	void poll(Consumer<String, String> consumer,
 			java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
-		if (logger.isInfoEnabled()) {
-			logger.info("Fetching messages from partition(s): {}", TopicUtils.join(", ", consumer.assignment()));
+		if (logger.isDebugEnabled()) {
+			logger.debug("Fetching messages from partition(s): {}", TopicUtils.join(", ", consumer.assignment()));
 		}
 
 		var batchCount = 0;
@@ -98,18 +98,9 @@ public class TopicReader {
 			logger.debug("Fetched {} message(s)", count);
 			messageCount += count;
 			processor.accept(messages);
-		} while (hasMoreMessages(consumer, endOffsets));
+		} while (ConsumerUtils.hasLag(consumer));
 
 		logger.debug("Fetched {} message(s) in {} batch(es)", messageCount, batchCount);
-	}
-
-	static boolean hasMoreMessages(Consumer<String, String> consumer, Map<TopicPartition, Long> endOffsets) {
-		for (var entry : endOffsets.entrySet()) {
-			if (consumer.position(entry.getKey()) < entry.getValue()) {
-				return true;
-			}
-		}
-		return false;
 	}
 
 }

@@ -54,8 +54,8 @@ class TopicReaderTests {
 		var minTimestamp = Instant.now();
 		var message = send();
 
-		var retriever = new TopicReader(message.topic, factory::createConsumer);
-		var polledMessage = retriever.poll(minTimestamp).iterator().next();
+		var reader = new TopicReader(message.topic, factory::createConsumer);
+		var polledMessage = reader.poll(minTimestamp).iterator().next();
 		assertEquals(message.key, polledMessage.key());
 		assertEquals(message.value, polledMessage.value());
 	}
@@ -65,8 +65,8 @@ class TopicReaderTests {
 		var minTimestamp = Instant.now();
 		var message = send();
 
-		var retriever = new TopicReader(message.topic, factory::createConsumer);
-		assertTrue(retriever.poll(minTimestamp.plusSeconds(10)).isEmpty());
+		var reader = new TopicReader(message.topic, factory::createConsumer);
+		assertTrue(reader.poll(minTimestamp.plusSeconds(10)).isEmpty());
 	}
 
 }

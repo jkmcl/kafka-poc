@@ -1,7 +1,6 @@
 package jkml;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
@@ -58,16 +57,18 @@ class ConcurrentTopicReaderTests {
 
 	@Test
 	void testPoll() throws Exception {
+		var minTimestamp = Instant.now();
 		var message = send();
 
 		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
-		var polledMessage = reader.poll().get(0);
+		var polledMessage = reader.poll(minTimestamp).get(0);
 		assertEquals(message.key, polledMessage.key());
 		assertEquals(message.value, polledMessage.value());
 	}
 
 	@Test
 	void testPollMany() throws Exception {
+		var minTimestamp = Instant.now();
 		var message = send();
 		send();
 		send();
@@ -76,26 +77,17 @@ class ConcurrentTopicReaderTests {
 		send();
 
 		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
-		var polledMessage = reader.poll();
+		var polledMessage = reader.poll(minTimestamp);
 		assertEquals(6, polledMessage.size());
 	}
 
 	@Test
-	void testCommitToTime_found() throws Exception {
-		var message = send();
-
-		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
-		reader.commitToTime(Instant.now().minusSeconds(10));
-		assertFalse(reader.poll().isEmpty());
-	}
-
-	@Test
 	void testCommitToTime_notFound() throws Exception {
+		var minTimestamp = Instant.now();
 		var message = send();
 
 		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
-		reader.commitToTime(Instant.now().plusSeconds(10));
-		assertTrue(reader.poll().isEmpty());
+		assertTrue(reader.poll(minTimestamp.plusSeconds(10)).isEmpty());
 	}
 
 
