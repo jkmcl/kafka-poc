@@ -38,22 +38,13 @@ public class ConcurrentTopicReader {
 		this.consumerFactory = consumerFactory;
 	}
 
-	private void fetchPartitions() {
-		// Partition info is fetched only once by design
-		if (partitions.isEmpty()) {
-			try (var consumer = consumerFactory.get()) {
-				partitions.addAll(TopicUtils.toPartitions(consumer.partitionsFor(topic)));
-			}
-		}
-	}
-
 	void commitToTime(Instant timestamp) {
 		logger.info("Committing fetch offsets to the earliest ones with timestamp >= {} (topic: {})", timestamp, topic);
 
-		fetchPartitions();
-
 		try (var consumer = consumerFactory.get()) {
-			consumer.assign(partitions);
+			partitions.clear();
+			partitions.addAll(ConsumerUtils.partitionsFor(consumer, topic));
+
 			var endOffsets = consumer.endOffsets(partitions);
 			var timeOffsets = consumer.offsetsForTimes(TopicUtils.createTimestamps(partitions, timestamp));
 			var offsets = new HashMap<TopicPartition, OffsetAndMetadata>();
@@ -61,6 +52,8 @@ public class ConcurrentTopicReader {
 				var timeOffset = timeOffsets.get(partition);
 				offsets.put(partition, new OffsetAndMetadata((timeOffset == null) ? endOffset : timeOffset.offset()));
 			});
+
+			consumer.assign(partitions);
 			consumer.commitSync(offsets);
 			consumer.unsubscribe();
 		}

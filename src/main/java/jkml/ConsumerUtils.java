@@ -1,10 +1,17 @@
 package jkml;
 
+import java.util.List;
+
 import org.apache.kafka.clients.consumer.Consumer;
+import org.apache.kafka.common.TopicPartition;
 
 public class ConsumerUtils {
 
 	private ConsumerUtils() {
+	}
+
+	public static List<TopicPartition> partitionsFor(Consumer<?, ?> consumer, String topic) {
+		return TopicUtils.toPartitions(consumer.partitionsFor(topic));
 	}
 
 	public static boolean hasLag(Consumer<?, ?> consumer) {
