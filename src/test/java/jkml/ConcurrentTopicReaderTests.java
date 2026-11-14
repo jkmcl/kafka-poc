@@ -60,7 +60,7 @@ class ConcurrentTopicReaderTests {
 		var minTimestamp = Instant.now();
 		var message = send();
 
-		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
+		var reader = new ConcurrentTopicReader(factory::createConsumer, message.topic);
 		var polledMessage = reader.read(minTimestamp).get(0);
 		assertEquals(message.key, polledMessage.key());
 		assertEquals(message.value, polledMessage.value());
@@ -76,7 +76,7 @@ class ConcurrentTopicReaderTests {
 		send();
 		send();
 
-		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
+		var reader = new ConcurrentTopicReader(factory::createConsumer, message.topic);
 		var polledMessage = reader.read(minTimestamp);
 		assertEquals(6, polledMessage.size());
 	}
@@ -86,7 +86,7 @@ class ConcurrentTopicReaderTests {
 		var minTimestamp = Instant.now();
 		var message = send();
 
-		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
+		var reader = new ConcurrentTopicReader(factory::createConsumer, message.topic);
 		assertTrue(reader.read(minTimestamp.plusSeconds(10)).isEmpty());
 	}
 

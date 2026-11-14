@@ -23,9 +23,9 @@ import org.springframework.test.annotation.DirtiesContext;
 @SpringBootTest
 @EmbeddedKafka(topics = { "topic1" }, partitions = 2)
 @DirtiesContext
-class TopicReaderTests {
+class SimpleTopicReaderTests {
 
-	private final Logger logger = LoggerFactory.getLogger(TopicReaderTests.class);
+	private final Logger logger = LoggerFactory.getLogger(SimpleTopicReaderTests.class);
 
 	@Autowired
 	private ConsumerFactory<String, String> factory;
@@ -53,7 +53,7 @@ class TopicReaderTests {
 		var minTimestamp = Instant.now();
 		var message = send();
 
-		var reader = new TopicReader(message.topic, factory::createConsumer);
+		var reader = new SimpleTopicReader(factory::createConsumer, message.topic);
 		var polledMessage = reader.read(minTimestamp).iterator().next();
 		assertEquals(message.key, polledMessage.key());
 		assertEquals(message.value, polledMessage.value());
@@ -64,7 +64,7 @@ class TopicReaderTests {
 		var minTimestamp = Instant.now();
 		var message = send();
 
-		var reader = new TopicReader(message.topic, factory::createConsumer);
+		var reader = new SimpleTopicReader(factory::createConsumer, message.topic);
 		assertTrue(reader.read(minTimestamp.plusSeconds(10)).isEmpty());
 	}
 

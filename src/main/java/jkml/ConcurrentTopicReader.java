@@ -14,15 +14,11 @@ import java.util.function.Supplier;
 import org.apache.kafka.clients.consumer.Consumer;
 import org.apache.kafka.clients.consumer.ConsumerRecord;
 import org.apache.kafka.clients.consumer.ConsumerRecords;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
 
-public final class ConcurrentTopicReader extends TopicReader {
+public final class ConcurrentTopicReader extends SimpleTopicReader {
 
-	private final Logger logger = LoggerFactory.getLogger(ConcurrentTopicReader.class);
-
-	public ConcurrentTopicReader(String topic, Supplier<Consumer<String, String>> consumerFactory) {
-		super(topic, consumerFactory);
+	public ConcurrentTopicReader(Supplier<Consumer<String, String>> consumerFactory, String topic) {
+		super(consumerFactory, topic);
 	}
 
 	@Override
@@ -92,16 +88,17 @@ public final class ConcurrentTopicReader extends TopicReader {
 	}
 
 	boolean wasExceptionThrown(int index, Future<Void> future) {
+		var prefix = index < 0 ? "" : "Consumer[%s]: ".formatted(index);
 		try {
 			future.get();
 			return false;
 		} catch (InterruptedException e) {
-			logger.error("Consumer[{}]: The wait for the polling task to complete was interrupted", index, e);
+			logger.error("{}The wait for the polling task to complete was interrupted", prefix, e);
 			Thread.currentThread().interrupt();
 		} catch (ExecutionException e) {
-			logger.error("Consumer[{}]: Fetching was aborted due to an exception", index, e);
+			logger.error("{}Fetching was aborted due to an exception", prefix, e);
 		} catch (CancellationException e) {
-			logger.error("Consumer[{}]: Fetching was cancelled", index, e);
+			logger.error("{}Fetching was cancelled", prefix, e);
 		}
 		return true;
 	}
