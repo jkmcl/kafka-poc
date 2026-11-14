@@ -1,13 +1,8 @@
 package jkml;
 
-import java.time.Instant;
 import java.util.ArrayList;
 import java.util.Comparator;
-import java.util.HashMap;
-import java.util.List;
-import java.util.Map;
 
-import org.apache.kafka.common.PartitionInfo;
 import org.apache.kafka.common.TopicPartition;
 
 public class TopicUtils {
@@ -15,24 +10,10 @@ public class TopicUtils {
 	private TopicUtils() {
 	}
 
-	public static List<TopicPartition> toPartitions(Iterable<PartitionInfo> partitions) {
-		var list = new ArrayList<TopicPartition>();
-		partitions.forEach(p -> list.add(new TopicPartition(p.topic(), p.partition())));
-		list.sort(Comparator.comparingInt(TopicPartition::partition));
-		return list;
-	}
-
-	public static Map<TopicPartition, Long> createTimestamps(Iterable<TopicPartition> partitions, Instant timestamp) {
-		var map = new HashMap<TopicPartition, Long>();
-		var milli = timestamp.toEpochMilli();
-		partitions.forEach(p -> map.put(p, milli));
-		return map;
-	}
-
 	public static String join(CharSequence delimiter, Iterable<TopicPartition> partitions) {
 		var list = new ArrayList<TopicPartition>();
 		partitions.forEach(list::add);
-		list.sort(Comparator.comparingInt(TopicPartition::partition));
+		list.sort(Comparator.comparing(TopicPartition::topic).thenComparingInt(TopicPartition::partition));
 
 		var strings = new ArrayList<String>(list.size());
 		list.forEach(p -> strings.add(p.toString()));

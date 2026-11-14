@@ -46,7 +46,7 @@ public class ConcurrentTopicReader {
 			partitions.addAll(ConsumerUtils.partitionsFor(consumer, topic));
 
 			var endOffsets = consumer.endOffsets(partitions);
-			var timeOffsets = consumer.offsetsForTimes(TopicUtils.createTimestamps(partitions, timestamp));
+			var timeOffsets = ConsumerUtils.offsetsForTime(consumer, partitions, timestamp);
 			var offsets = new HashMap<TopicPartition, OffsetAndMetadata>();
 			endOffsets.forEach((partition, endOffset) -> {
 				var timeOffset = timeOffsets.get(partition);
