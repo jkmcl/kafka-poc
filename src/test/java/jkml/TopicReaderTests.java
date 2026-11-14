@@ -4,7 +4,6 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.time.Instant;
-import java.util.concurrent.ExecutionException;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
@@ -42,7 +41,7 @@ class TopicReaderTests {
 	private record Message(String topic, String key, String value) {
 	}
 
-	private Message send() throws InterruptedException, ExecutionException {
+	private Message send() throws Exception {
 		var msg = new Message("topic1", "key1", "Content created at " + Instant.now().toString());
 		logger.info("Sending message to topic: {}", msg.topic);
 		kafkaTemplate.send(msg.topic, msg.key, msg.value).get();
@@ -50,23 +49,23 @@ class TopicReaderTests {
 	}
 
 	@Test
-	void testPoll() throws Exception {
+	void testRead() throws Exception {
 		var minTimestamp = Instant.now();
 		var message = send();
 
 		var reader = new TopicReader(message.topic, factory::createConsumer);
-		var polledMessage = reader.poll(minTimestamp).iterator().next();
+		var polledMessage = reader.read(minTimestamp).iterator().next();
 		assertEquals(message.key, polledMessage.key());
 		assertEquals(message.value, polledMessage.value());
 	}
 
 	@Test
-	void testPoll_notFound() throws Exception {
+	void testRead_notFound() throws Exception {
 		var minTimestamp = Instant.now();
 		var message = send();
 
 		var reader = new TopicReader(message.topic, factory::createConsumer);
-		assertTrue(reader.poll(minTimestamp.plusSeconds(10)).isEmpty());
+		assertTrue(reader.read(minTimestamp.plusSeconds(10)).isEmpty());
 	}
 
 }

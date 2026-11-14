@@ -47,7 +47,7 @@ class ConcurrentTopicReaderTests {
 	private record Message(String topic, String key, String value) {
 	}
 
-	private Message send() throws InterruptedException, ExecutionException {
+	private Message send() throws Exception {
 		var str = UUID.randomUUID().toString();
 		var msg = new Message("topic1", str, "Content " + str);
 		logger.info("Sending message to topic: {}", msg.topic);
@@ -56,18 +56,18 @@ class ConcurrentTopicReaderTests {
 	}
 
 	@Test
-	void testPoll() throws Exception {
+	void testRead() throws Exception {
 		var minTimestamp = Instant.now();
 		var message = send();
 
 		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
-		var polledMessage = reader.poll(minTimestamp).get(0);
+		var polledMessage = reader.read(minTimestamp).get(0);
 		assertEquals(message.key, polledMessage.key());
 		assertEquals(message.value, polledMessage.value());
 	}
 
 	@Test
-	void testPollMany() throws Exception {
+	void testReadMany() throws Exception {
 		var minTimestamp = Instant.now();
 		var message = send();
 		send();
@@ -77,17 +77,17 @@ class ConcurrentTopicReaderTests {
 		send();
 
 		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
-		var polledMessage = reader.poll(minTimestamp);
+		var polledMessage = reader.read(minTimestamp);
 		assertEquals(6, polledMessage.size());
 	}
 
 	@Test
-	void testCommitToTime_notFound() throws Exception {
+	void testRead_notFound() throws Exception {
 		var minTimestamp = Instant.now();
 		var message = send();
 
 		var reader = new ConcurrentTopicReader(message.topic, factory::createConsumer);
-		assertTrue(reader.poll(minTimestamp.plusSeconds(10)).isEmpty());
+		assertTrue(reader.read(minTimestamp.plusSeconds(10)).isEmpty());
 	}
 
 

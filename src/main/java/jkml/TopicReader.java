@@ -15,21 +15,38 @@ import org.apache.kafka.common.TopicPartition;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 
-public class TopicReader {
+public sealed class TopicReader permits ConcurrentTopicReader {
 
-	private static final Duration POLL_TIMEOUT = Duration.ofSeconds(3);
+	static final Duration POLL_TIMEOUT = Duration.ofSeconds(3);
 
 	private final Logger logger = LoggerFactory.getLogger(TopicReader.class);
 
 	private final String topic;
 
-	private final Supplier<Consumer<String, String>> consumerFactory;
+	final Supplier<Consumer<String, String>> consumerFactory;
 
-	private final List<TopicPartition> partitions = new ArrayList<>();
+	final List<TopicPartition> partitions = new ArrayList<>();
 
 	public TopicReader(String topic, Supplier<Consumer<String, String>> consumerFactory) {
 		this.topic = topic;
 		this.consumerFactory = consumerFactory;
+	}
+
+	public List<ConsumerRecord<String, String>> read(Instant minTimestamp) {
+		var messages = new ArrayList<ConsumerRecord<String, String>>();
+		process(minTimestamp, m -> {
+			messages.ensureCapacity(messages.size() + m.count());
+			m.forEach(messages::add);
+		});
+		return messages;
+	}
+
+	public void process(Instant minTimestamp, java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
+		logger.info("Fetching messages from topic: {}", topic);
+
+		commitToTime(minTimestamp);
+
+		poll(processor);
 	}
 
 	void commitToTime(Instant timestamp) {
@@ -49,37 +66,25 @@ public class TopicReader {
 
 			consumer.assign(partitions);
 			consumer.commitSync(offsets);
-			consumer.unsubscribe();
 		}
-	}
-
-	public List<ConsumerRecord<String, String>> poll(Instant minTimestamp) {
-		logger.info("Fetching messages from topic: {}", topic);
-
-		var messages = new ArrayList<ConsumerRecord<String, String>>();
-
-		commitToTime(minTimestamp);
-
-		poll(m -> {
-			messages.ensureCapacity(messages.size() + m.count());
-			m.forEach(messages::add);
-		});
-
-		logger.info("Fetched message count: {}", messages.size());
-		return messages;
 	}
 
 	void poll(java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
 		try (var consumer = consumerFactory.get()) {
 			consumer.assign(partitions);
-			poll(consumer, processor);
+			poll(-1, consumer, processor);
 		}
+
 	}
 
-	void poll(Consumer<String, String> consumer,
+	void poll(int index, Consumer<String, String> consumer,
 			java.util.function.Consumer<ConsumerRecords<String, String>> processor) {
+
+		var prefix = index < 0 ? "" : "Consumer[" + index + "]: ";
+
 		if (logger.isDebugEnabled()) {
-			logger.debug("Fetching messages from partition(s): {}", TopicUtils.join(", ", consumer.assignment()));
+			logger.debug("{}Fetching messages from partition(s): {}", prefix,
+					TopicUtils.join(", ", consumer.assignment()));
 		}
 
 		var batchCount = 0;
@@ -88,12 +93,12 @@ public class TopicReader {
 			var messages = consumer.poll(POLL_TIMEOUT);
 			++batchCount;
 			var count = messages.count();
-			logger.debug("Fetched {} message(s)", count);
+			logger.debug("{}Fetched {} message(s)", prefix, count);
 			messageCount += count;
 			processor.accept(messages);
 		} while (ConsumerUtils.hasLag(consumer));
 
-		logger.debug("Fetched {} message(s) in {} batch(es)", messageCount, batchCount);
+		logger.debug("{}Fetched {} message(s) in {} batch(es)", prefix, messageCount, batchCount);
 	}
 
 }
